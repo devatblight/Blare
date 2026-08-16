@@ -44,14 +44,9 @@ public sealed class ProcessLoopbackCapture
     public async Task<LoopbackCaptureResult> CaptureAsync(uint targetProcessId, TimeSpan duration)
     {
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-        var handler = new CompletionHandler();
-        StartActivation(targetProcessId, handler);
-
-        var operation = await handler.Completion.Task;
-        var audioClient = GetActivationResult(operation);
+        var (audioClient, captureClient) = await ActivateAsync(targetProcessId, SampleRateHz, Channels);
         var activationLatency = stopwatch.Elapsed;
 
-        var captureClient = InitializeCapture(audioClient);
         audioClient.Start();
 
         long framesRead = 0;
@@ -68,6 +63,64 @@ public sealed class ProcessLoopbackCapture
         audioClient.Stop();
 
         return new LoopbackCaptureResult(activationLatency, framesRead, packetsRead, peak);
+    }
+
+    /// <summary>
+    /// Runs continuous capture, invoking <paramref name="onBlock"/> with each
+    /// block's interleaved float samples until cancelled. Used by
+    /// <see cref="BoostEngine"/>, which passes <paramref name="sampleRateHz"/>/
+    /// <paramref name="channels"/> matching the render device's actual mix
+    /// format so the two legs of the pipeline agree on format without needing
+    /// a resampler.
+    /// </summary>
+    public async Task RunAsync(uint targetProcessId, AudioBlockHandler onBlock, CancellationToken cancellationToken, int sampleRateHz = SampleRateHz, int channels = Channels)
+    {
+        var (audioClient, captureClient) = await ActivateAsync(targetProcessId, sampleRateHz, channels);
+        audioClient.Start();
+
+        try
+        {
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                await Task.Delay(10, cancellationToken);
+                DrainAndDispatch(captureClient, onBlock, channels);
+            }
+        }
+        finally
+        {
+            audioClient.Stop();
+        }
+    }
+
+    private static async Task<(IAudioClient AudioClient, IAudioCaptureClient CaptureClient)> ActivateAsync(uint targetProcessId, int sampleRateHz, int channels)
+    {
+        var handler = new CompletionHandler();
+        StartActivation(targetProcessId, handler);
+
+        var operation = await handler.Completion.Task;
+        var audioClient = GetActivationResult(operation);
+        var captureClient = InitializeCapture(audioClient, sampleRateHz, channels);
+
+        return (audioClient, captureClient);
+    }
+
+    private static unsafe void DrainAndDispatch(IAudioCaptureClient captureClient, AudioBlockHandler onBlock, int channels)
+    {
+        captureClient.GetNextPacketSize(out var framesAvailable);
+
+        while (framesAvailable > 0)
+        {
+            byte* dataPtr;
+            captureClient.GetBuffer(&dataPtr, out var numFrames, out var flags, null, null);
+
+            if ((flags & AUDCLNT_BUFFERFLAGS_SILENT) == 0 && numFrames > 0)
+            {
+                onBlock(new ReadOnlySpan<float>(dataPtr, (int)(numFrames * channels)));
+            }
+
+            captureClient.ReleaseBuffer(numFrames);
+            captureClient.GetNextPacketSize(out framesAvailable);
+        }
     }
 
     private static unsafe void StartActivation(uint targetProcessId, CompletionHandler handler)
@@ -104,16 +157,16 @@ public sealed class ProcessLoopbackCapture
         return (IAudioClient)activatedInterface;
     }
 
-    private static unsafe IAudioCaptureClient InitializeCapture(IAudioClient audioClient)
+    private static unsafe IAudioCaptureClient InitializeCapture(IAudioClient audioClient, int sampleRateHz, int channels)
     {
         var format = new WAVEFORMATEX
         {
             wFormatTag = WAVE_FORMAT_IEEE_FLOAT,
-            nChannels = Channels,
-            nSamplesPerSec = SampleRateHz,
+            nChannels = (ushort)channels,
+            nSamplesPerSec = (uint)sampleRateHz,
             wBitsPerSample = BitsPerSample,
-            nBlockAlign = (ushort)(Channels * BitsPerSample / 8),
-            nAvgBytesPerSec = (uint)(SampleRateHz * Channels * BitsPerSample / 8),
+            nBlockAlign = (ushort)(channels * BitsPerSample / 8),
+            nAvgBytesPerSec = (uint)(sampleRateHz * channels * BitsPerSample / 8),
             cbSize = 0,
         };
 
@@ -199,3 +252,5 @@ public sealed record LoopbackCaptureResult(
     long FramesCaptured,
     long PacketsCaptured,
     float PeakAmplitude);
+
+public delegate void AudioBlockHandler(ReadOnlySpan<float> samples);

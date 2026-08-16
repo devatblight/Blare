@@ -47,6 +47,27 @@ if (target is not null)
     {
         Console.WriteLine($"Spike B FAILED: {ex}");
     }
+
+    Console.WriteLine();
+    Console.WriteLine($"Boost pipeline: starting full capture->gain->limiter->render for pid={target.ProcessId}, 5s...");
+    var boostEngine = new BoostEngine(manager);
+    try
+    {
+        boostEngine.Start(target.ProcessId, gainLinear: 2.0f);
+        var muteDuringBoost = manager.GetSessionsForDefaultDevice().FirstOrDefault(s => s.ProcessId == target.ProcessId)?.IsMuted;
+        Console.WriteLine($"  original session muted while boosting: {muteDuringBoost}");
+
+        await Task.Delay(5000);
+
+        await boostEngine.StopAsync();
+        var muteAfterStop = manager.GetSessionsForDefaultDevice().FirstOrDefault(s => s.ProcessId == target.ProcessId)?.IsMuted;
+        Console.WriteLine($"  original session muted after stop: {muteAfterStop}");
+        Console.WriteLine("Boost pipeline ran and stopped cleanly.");
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"Boost pipeline FAILED: {ex}");
+    }
 }
 else
 {
