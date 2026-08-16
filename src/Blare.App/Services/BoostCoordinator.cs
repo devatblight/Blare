@@ -13,8 +13,11 @@ namespace BLight.Blare.App.Services;
 /// </summary>
 public sealed class BoostCoordinator
 {
-    public const double SafeCeilingPercent = 150;
-    public const double OverriddenCeilingPercent = 300;
+    // Held at unity while the boost pipeline is out of action (see
+    // SetVolumePercentAsync) so faders can't be dragged into a range that
+    // does nothing.
+    public const double SafeCeilingPercent = 100;
+    public const double OverriddenCeilingPercent = 100;
 
     private readonly AudioSessionManager _sessionManager;
     private readonly ConsentState _consent;
@@ -42,34 +45,20 @@ public sealed class BoostCoordinator
 
     public async Task SetVolumePercentAsync(uint processId, double volumePercent)
     {
-        if (volumePercent > 100)
-        {
-            var gain = (float)(volumePercent / 100.0);
-
-            if (!_engines.TryGetValue(processId, out var engine))
-            {
-                engine = new BoostEngine(_sessionManager);
-                _engines[processId] = engine;
-            }
-
-            if (engine.IsRunning)
-            {
-                engine.GainLinear = gain;
-            }
-            else
-            {
-                engine.Start(processId, gain);
-            }
-
-            return;
-        }
-
+        // The boost pipeline is disabled: BoostEngine silences the original
+        // session so the boosted re-render can replace it, but measurement
+        // showed per-process loopback capture is applied AFTER session
+        // volume/mute — so silencing the original also silences what we
+        // capture, and boost renders pure silence. Engaging it here would
+        // kill the app's audio outright, which is worse than not boosting.
+        // Volume is clamped to unity until boost has a working mechanism.
         if (_engines.TryGetValue(processId, out var runningEngine) && runningEngine.IsRunning)
         {
             await runningEngine.StopAsync();
         }
 
-        _sessionManager.SetVolume(processId, (float)(volumePercent / 100.0));
+        var clamped = Math.Clamp(volumePercent, 0, 100);
+        _sessionManager.SetVolume(processId, (float)(clamped / 100.0));
     }
 
     public async Task StopAllAsync()
