@@ -1,4 +1,5 @@
 using BLight.Blare.App.Services;
+using BLight.Blare.Audio.Devices;
 using BLight.Blare.Audio.Sessions;
 using BLight.Blare.Core.Safety;
 using BLight.Blare.Core.Settings;
@@ -45,6 +46,7 @@ public partial class App : Application
             "Blare");
 
         services.AddSingleton<AudioSessionManager>();
+        services.AddSingleton<AudioDeviceManager>();
         services.AddSingleton<LoudnessTracker>();
         services.AddSingleton<ConsentState>();
         services.AddSingleton<SafetyMonitor>();

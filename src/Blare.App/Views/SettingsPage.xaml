@@ -1,0 +1,52 @@
+<Page
+    x:Class="BLight.Blare.App.Views.SettingsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:CommunityToolkit.WinUI.Controls"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006">
+
+    <ScrollViewer Padding="24,16,24,24">
+        <StackPanel Spacing="4" MaxWidth="760" HorizontalAlignment="Stretch">
+            <TextBlock Text="Settings" Style="{StaticResource TitleLargeTextBlockStyle}" Margin="0,0,0,12" />
+
+            <TextBlock Text="Safety" Style="{StaticResource BodyStrongTextBlockStyle}" Margin="0,8,0,4" />
+
+            <controls:SettingsCard
+                Header="Health warnings"
+                Description="Warns when an app has been running near full volume for a while. Turning this off requires explicit confirmation and re-enables itself automatically after 30 days.">
+                <controls:SettingsCard.HeaderIcon>
+                    <FontIcon Glyph="&#xE7BA;" />
+                </controls:SettingsCard.HeaderIcon>
+                <Button x:Name="ToggleWarningsButton" Content="Disable" Click="OnToggleWarningsClick" />
+            </controls:SettingsCard>
+
+            <controls:SettingsCard
+                Header="Boost ceiling"
+                Description="How far past 100% a single app's volume can be pushed. 150% is the default safe limit.">
+                <controls:SettingsCard.HeaderIcon>
+                    <FontIcon Glyph="&#xE9E9;" />
+                </controls:SettingsCard.HeaderIcon>
+                <Button x:Name="RaiseCeilingButton" Content="Allow up to 300%" Click="OnRaiseCeilingClick" />
+            </controls:SettingsCard>
+
+            <InfoBar
+                IsOpen="True"
+                IsClosable="False"
+                Severity="Informational"
+                Margin="0,4,0,0"
+                CornerRadius="8"
+                Title="A note on measurement"
+                Message="Blare measures relative audio signal level, not actual sound pressure at your ears — it can't know your speaker or headphone volume." />
+
+            <TextBlock Text="About" Style="{StaticResource BodyStrongTextBlockStyle}" Margin="0,24,0,4" />
+
+            <controls:SettingsExpander Header="Blare" Description="Per-app volume mixer with health safeguards, part of BLight">
+                <controls:SettingsExpander.HeaderIcon>
+                    <FontIcon Glyph="&#xE946;" />
+                </controls:SettingsExpander.HeaderIcon>
+                <TextBlock Text="0.1.0" VerticalAlignment="Center" Opacity="0.7" />
+            </controls:SettingsExpander>
+        </StackPanel>
+    </ScrollViewer>
+</Page>

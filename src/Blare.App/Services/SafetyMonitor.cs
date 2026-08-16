@@ -15,6 +15,7 @@ public sealed class SafetyMonitor
     private readonly ConsentState _consent;
     private readonly TimeSpan _warnAfter;
     private readonly double _thresholdPercent;
+    private readonly HashSet<string> _currentlyWarned = new();
 
     public SafetyMonitor(LoudnessTracker tracker, ConsentState consent, TimeSpan? warnAfter = null, double thresholdPercent = 90)
     {
@@ -23,6 +24,9 @@ public sealed class SafetyMonitor
         _warnAfter = warnAfter ?? TimeSpan.FromMinutes(20);
         _thresholdPercent = thresholdPercent;
     }
+
+    /// <summary>How many times an app has newly crossed into a warned state this run — a transition count, not a per-sample tally, so an ongoing warning doesn't keep inflating it.</summary>
+    public int WarningCount { get; private set; }
 
     /// <summary>Feeds one sampling tick and returns app keys currently past the warn-after duration, empty if warnings are opted out (and that opt-out hasn't expired).</summary>
     public IReadOnlyList<string> Sample(IEnumerable<(string AppKey, double VolumePercent)> sessions, DateTimeOffset now)
@@ -42,6 +46,15 @@ public sealed class SafetyMonitor
             if (window.TimeAboveThreshold >= _warnAfter)
             {
                 warned.Add(appKey);
+
+                if (_currentlyWarned.Add(appKey))
+                {
+                    WarningCount++;
+                }
+            }
+            else
+            {
+                _currentlyWarned.Remove(appKey);
             }
         }
 

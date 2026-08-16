@@ -30,6 +30,8 @@ public sealed class BoostCoordinator
 
     public bool AnyBoosted => _engines.Values.Any(e => e.IsRunning);
 
+    public int BoostedCount => _engines.Values.Count(e => e.IsRunning);
+
     public double CurrentCeilingPercent(DateTimeOffset now) =>
         _consent.IsActive(ConsentKind.SafeBoostCeilingOverride, now) ? OverriddenCeilingPercent : SafeCeilingPercent;
 

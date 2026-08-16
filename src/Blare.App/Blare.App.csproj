@@ -13,20 +13,25 @@
     <RuntimeIdentifiers>win-x64;win-arm64</RuntimeIdentifiers>
 
     <!--
-      Unpackaged for now so `dotnet build`/`dotnet run` work without going
-      through the MSIX packaging project — see Blare.Package for the real
-      distribution build. DISABLE_XAML_GENERATED_MAIN + Program.cs below is
-      the documented pattern for running a Windows App SDK app unpackaged.
+      Defaults to unpackaged so plain `dotnet build`/`dotnet run` stay fast
+      for local iteration. Pass -p:WindowsPackageType=MSIX (with
+      -p:SelfContained=false) to produce the real MSIX distribution build —
+      single-project MSIX via Package.appxmanifest, no separate packaging
+      project needed since the Windows App SDK supports this directly.
+      DISABLE_XAML_GENERATED_MAIN + Program.cs is the documented pattern for
+      running unpackaged; it also works fine under MSIX.
     -->
-    <WindowsPackageType>None</WindowsPackageType>
+    <WindowsPackageType Condition="'$(WindowsPackageType)' == ''">None</WindowsPackageType>
     <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
     <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.5.240428000" />
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.6.250108002" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.22621.756" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.0" />
+    <!-- SettingsCard/SettingsExpander — the same native-feeling grouped-settings controls Windows' own Settings app and most polished WinUI3 apps use. -->
+    <PackageReference Include="CommunityToolkit.WinUI.Controls.SettingsControls" Version="8.2.251219" />
   </ItemGroup>
 
   <ItemGroup>

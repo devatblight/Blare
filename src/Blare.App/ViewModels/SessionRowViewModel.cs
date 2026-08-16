@@ -8,6 +8,7 @@ public sealed class SessionRowViewModel : INotifyPropertyChanged
 {
     private double _volumePercent;
     private double _maxVolumePercent = 150;
+    private double _meterPercent;
     private bool _isMuted;
     private bool _isBoosted;
     private BitmapImage? _icon;
@@ -36,6 +37,13 @@ public sealed class SessionRowViewModel : INotifyPropertyChanged
     {
         get => _isMuted;
         set => SetField(ref _isMuted, value);
+    }
+
+    /// <summary>0-100 live peak level for the meter — attack-fast/decay-slow smoothed by whoever's polling, not raw per-tick jitter.</summary>
+    public double MeterPercent
+    {
+        get => _meterPercent;
+        set => SetField(ref _meterPercent, value);
     }
 
     /// <summary>True while a Phase 2 boost pipeline is actually running for this app (not just "slider is above 100%").</summary>
