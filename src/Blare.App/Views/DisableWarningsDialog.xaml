@@ -1,0 +1,31 @@
+<ContentDialog
+    x:Class="BLight.Blare.App.Views.DisableWarningsDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="Turn off health warnings?"
+    PrimaryButtonText="Turn off warnings"
+    CloseButtonText="Cancel"
+    DefaultButton="Close"
+    IsPrimaryButtonEnabled="False">
+
+    <StackPanel Spacing="12" MaxWidth="420">
+        <InfoBar
+            IsOpen="True"
+            IsClosable="False"
+            Severity="Warning"
+            Title="This is not a routine setting"
+            Message="Blare warns you when an app has been running loud for a while. Turning this off removes that protection until it's automatically re-enabled in 30 days." />
+
+        <CheckBox
+            x:Name="AcknowledgeCheckBox"
+            Content="I understand this can cause hearing damage and I am choosing to proceed."
+            Checked="OnGateChanged"
+            Unchecked="OnGateChanged" />
+
+        <TextBlock Text="Type &quot;disable&quot; to confirm:" />
+        <TextBox
+            x:Name="ConfirmationTextBox"
+            PlaceholderText="disable"
+            TextChanged="OnGateChanged" />
+    </StackPanel>
+</ContentDialog>

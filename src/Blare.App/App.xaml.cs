@@ -46,6 +46,7 @@ public partial class App : Application
         services.AddSingleton<AudioSessionManager>();
         services.AddSingleton<LoudnessTracker>();
         services.AddSingleton<ConsentState>();
+        services.AddSingleton<SafetyMonitor>();
         services.AddSingleton<TrayIconService>();
         services.AddSingleton<ISettingsStore>(new JsonFileSettingsStore(settingsDirectory));
         services.AddSingleton<SessionVolumeStore>();
