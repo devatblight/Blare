@@ -7,6 +7,7 @@
     <Project Path="src/Blare.Core/Blare.Core.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/Blare.Audio.Tests/Blare.Audio.Tests.csproj" />
     <Project Path="tests/Blare.Core.Tests/Blare.Core.Tests.csproj" />
   </Folder>
 </Solution>

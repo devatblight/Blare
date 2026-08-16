@@ -10,4 +10,8 @@ IAudioSessionNotification
 ISimpleAudioVolume
 IAudioMeterInformation
 IAudioEndpointVolume
+IAudioEndpointVolumeCallback
+IPropertyStore
+PKEY_Device_FriendlyName
+PropVariantClear
 CoCreateInstance
