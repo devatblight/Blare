@@ -19,6 +19,7 @@ public sealed partial class MainWindow : Window
     private readonly AudioSessionManager _sessionManager;
     private readonly SessionVolumeStore _volumeStore;
     private readonly SafetyMonitor _safetyMonitor;
+    private readonly BoostCoordinator _boostCoordinator;
     private readonly IconResolver _iconResolver = new();
     private readonly DispatcherQueueTimer _safetyTimer;
     private MicaController? _micaController;
@@ -27,11 +28,16 @@ public sealed partial class MainWindow : Window
 
     public ObservableCollection<SessionRowViewModel> Sessions { get; } = new();
 
-    public MainWindow(AudioSessionManager sessionManager, SessionVolumeStore volumeStore, SafetyMonitor safetyMonitor)
+    public MainWindow(
+        AudioSessionManager sessionManager,
+        SessionVolumeStore volumeStore,
+        SafetyMonitor safetyMonitor,
+        BoostCoordinator boostCoordinator)
     {
         _sessionManager = sessionManager;
         _volumeStore = volumeStore;
         _safetyMonitor = safetyMonitor;
+        _boostCoordinator = boostCoordinator;
         InitializeComponent();
 
         Title = "Blare";
@@ -104,6 +110,29 @@ public sealed partial class MainWindow : Window
             : "Disable health warnings";
     }
 
+    private async void OnRaiseCeilingClick(object sender, RoutedEventArgs e)
+    {
+        var now = DateTimeOffset.UtcNow;
+
+        if (_boostCoordinator.CurrentCeilingPercent(now) >= BoostCoordinator.OverriddenCeilingPercent)
+        {
+            return; // already granted and not yet expired
+        }
+
+        var dialog = new RaiseBoostCeilingDialog { XamlRoot = Content.XamlRoot };
+        var result = await dialog.ShowAsync();
+
+        if (result == ContentDialogResult.Primary)
+        {
+            _boostCoordinator.GrantCeilingOverride(now);
+            var ceiling = _boostCoordinator.CurrentCeilingPercent(now);
+            foreach (var row in Sessions)
+            {
+                row.MaxVolumePercent = ceiling;
+            }
+        }
+    }
+
     private void TrySetMicaBackdrop()
     {
         if (!MicaController.IsSupported())
@@ -151,6 +180,7 @@ public sealed partial class MainWindow : Window
                 DisplayName = string.IsNullOrWhiteSpace(session.DisplayName) ? displayName : session.DisplayName,
                 ExecutablePath = executablePath,
                 VolumePercent = savedVolumePercent ?? liveVolumePercent,
+                MaxVolumePercent = _boostCoordinator.CurrentCeilingPercent(DateTimeOffset.UtcNow),
                 IsMuted = session.IsMuted,
             };
             row.PropertyChanged += OnRowPropertyChanged;
@@ -184,16 +214,22 @@ public sealed partial class MainWindow : Window
         switch (e.PropertyName)
         {
             case nameof(SessionRowViewModel.VolumePercent):
-                _sessionManager.SetVolume(row.ProcessId, (float)(row.VolumePercent / 100.0));
-                if (!string.IsNullOrEmpty(row.ExecutablePath))
-                {
-                    _ = _volumeStore.SetVolumeAsync(row.ExecutablePath, row.VolumePercent);
-                }
-
+                _ = ApplyVolumeChangeAsync(row);
                 break;
             case nameof(SessionRowViewModel.IsMuted):
                 _sessionManager.SetMute(row.ProcessId, row.IsMuted);
                 break;
+        }
+    }
+
+    private async Task ApplyVolumeChangeAsync(SessionRowViewModel row)
+    {
+        await _boostCoordinator.SetVolumePercentAsync(row.ProcessId, row.VolumePercent);
+        row.IsBoosted = _boostCoordinator.IsBoosted(row.ProcessId);
+
+        if (!string.IsNullOrEmpty(row.ExecutablePath))
+        {
+            await _volumeStore.SetVolumeAsync(row.ExecutablePath, row.VolumePercent);
         }
     }
 

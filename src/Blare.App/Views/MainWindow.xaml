@@ -43,6 +43,7 @@
                             <ColumnDefinition Width="32" />
                             <ColumnDefinition Width="180" />
                             <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="48" />
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
 
@@ -61,12 +62,20 @@
                         <Slider
                             Grid.Column="2"
                             Minimum="0"
-                            Maximum="100"
+                            Maximum="{x:Bind MaxVolumePercent, Mode=OneWay}"
                             Value="{x:Bind VolumePercent, Mode=TwoWay}"
                             VerticalAlignment="Center" />
 
-                        <ToggleSwitch
+                        <TextBlock
                             Grid.Column="3"
+                            Text="boosted"
+                            Foreground="Orange"
+                            FontSize="11"
+                            VerticalAlignment="Center"
+                            Visibility="{x:Bind IsBoosted, Mode=OneWay}" />
+
+                        <ToggleSwitch
+                            Grid.Column="4"
                             OnContent="Muted"
                             OffContent="Muted"
                             IsOn="{x:Bind IsMuted, Mode=TwoWay}" />
@@ -84,6 +93,10 @@
                 x:Name="ToggleWarningsButton"
                 Content="Disable health warnings"
                 Click="OnToggleWarningsClick" />
+            <HyperlinkButton
+                x:Name="RaiseCeilingButton"
+                Content="Allow boost past 150%"
+                Click="OnRaiseCeilingClick" />
         </StackPanel>
     </Grid>
 </Window>

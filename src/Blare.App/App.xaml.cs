@@ -27,8 +27,9 @@ public partial class App : Application
 
         _trayIcon = Services.GetRequiredService<TrayIconService>();
         _trayIcon.OpenRequested += (_, _) => _mainWindow.Activate();
-        _trayIcon.ExitRequested += (_, _) =>
+        _trayIcon.ExitRequested += async (_, _) =>
         {
+            await Services.GetRequiredService<BoostCoordinator>().StopAllAsync();
             _trayIcon.Dispose();
             Exit();
         };
@@ -47,6 +48,7 @@ public partial class App : Application
         services.AddSingleton<LoudnessTracker>();
         services.AddSingleton<ConsentState>();
         services.AddSingleton<SafetyMonitor>();
+        services.AddSingleton<BoostCoordinator>();
         services.AddSingleton<TrayIconService>();
         services.AddSingleton<ISettingsStore>(new JsonFileSettingsStore(settingsDirectory));
         services.AddSingleton<SessionVolumeStore>();

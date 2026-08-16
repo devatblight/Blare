@@ -32,6 +32,9 @@ public sealed class BoostEngine
 
     public bool IsRunning => _pipelineTask is { IsCompleted: false };
 
+    /// <summary>Read by the pipeline loop on every block, so a caller (e.g. dragging a slider) can adjust gain live without tearing down and restarting the whole capture/render pipeline.</summary>
+    public float GainLinear { get; set; } = 1f;
+
     public void Start(uint processId, float gainLinear)
     {
         if (IsRunning)
@@ -40,10 +43,11 @@ public sealed class BoostEngine
         }
 
         _boostedProcessId = processId;
+        GainLinear = gainLinear;
         _sessionManager.SetMute(processId, true);
 
         _cts = new CancellationTokenSource();
-        _pipelineTask = RunPipelineAsync(processId, gainLinear, _cts.Token);
+        _pipelineTask = RunPipelineAsync(processId, _cts.Token);
     }
 
     public async Task StopAsync()
@@ -75,7 +79,7 @@ public sealed class BoostEngine
         }
     }
 
-    private async Task RunPipelineAsync(uint processId, float gainLinear, CancellationToken cancellationToken)
+    private async Task RunPipelineAsync(uint processId, CancellationToken cancellationToken)
     {
         var renderer = new BoostRenderer();
         var limiter = new Limiter();
@@ -88,7 +92,7 @@ public sealed class BoostEngine
                 block =>
                 {
                     var mutable = block.ToArray().AsSpan();
-                    GainProcessor.ApplyGain(mutable, gainLinear);
+                    GainProcessor.ApplyGain(mutable, GainLinear);
                     limiter.Process(mutable);
                     renderer.Write(mutable);
                 },

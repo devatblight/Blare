@@ -7,7 +7,9 @@ namespace BLight.Blare.App.ViewModels;
 public sealed class SessionRowViewModel : INotifyPropertyChanged
 {
     private double _volumePercent;
+    private double _maxVolumePercent = 150;
     private bool _isMuted;
+    private bool _isBoosted;
     private BitmapImage? _icon;
 
     public uint ProcessId { get; set; }
@@ -23,10 +25,24 @@ public sealed class SessionRowViewModel : INotifyPropertyChanged
         set => SetField(ref _volumePercent, value);
     }
 
+    /// <summary>Upper bound for the volume slider — 150 by default, 300 once the ceiling override consent is granted.</summary>
+    public double MaxVolumePercent
+    {
+        get => _maxVolumePercent;
+        set => SetField(ref _maxVolumePercent, value);
+    }
+
     public bool IsMuted
     {
         get => _isMuted;
         set => SetField(ref _isMuted, value);
+    }
+
+    /// <summary>True while a Phase 2 boost pipeline is actually running for this app (not just "slider is above 100%").</summary>
+    public bool IsBoosted
+    {
+        get => _isBoosted;
+        set => SetField(ref _isBoosted, value);
     }
 
     public BitmapImage? Icon
