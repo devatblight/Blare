@@ -119,12 +119,14 @@ public sealed partial class MixerPage : Page
 
     private void UpdateStatusChips()
     {
-        var boosted = _boostCoordinator.BoostedCount;
-        var warnings = _safetyMonitor.WarningCount;
+        BoostedCountText.Text = _boostCoordinator.BoostedCount.ToString();
+        WarningCountText.Text = _safetyMonitor.WarningCount.ToString();
 
-        BoostedCountText.Text = boosted == 1 ? "1 boosted" : $"{boosted} boosted";
-        WarningCountText.Text = warnings == 1 ? "1 warning" : $"{warnings} warnings";
-        ExposureText.Text = $"{_safetyMonitor.TotalTimeAboveThreshold.TotalMinutes:F0}m loud";
+        var minutesLoud = _safetyMonitor.TotalTimeAboveThreshold.TotalMinutes;
+        ExposureText.Text = $"{minutesLoud:F0}m";
+        // Bar fills across a nominal 60-minute reference so it reads as a
+        // trend, not a clinical dose measurement.
+        ExposureBar.Value = Math.Min(100, minutesLoud / 60.0 * 100);
     }
 
     private void RunSafetySample()
@@ -164,6 +166,7 @@ public sealed partial class MixerPage : Page
             .ToList();
 
         var livePids = liveSessions.Select(s => s.ProcessId).ToHashSet();
+        var ceiling = _boostCoordinator.CurrentCeilingPercent(DateTimeOffset.UtcNow);
 
         // Drop strips for apps that stopped playing.
         foreach (var goneProcessId in _strips.Keys.Where(pid => !livePids.Contains(pid)).ToList())
@@ -175,8 +178,29 @@ public sealed partial class MixerPage : Page
 
         foreach (var session in liveSessions)
         {
-            if (_strips.ContainsKey(session.ProcessId))
+            if (_strips.TryGetValue(session.ProcessId, out var existingStrip))
             {
+                if (existingStrip.ViewModel is { } existingViewModel)
+                {
+                    // Mute can be changed outside Blare (Windows' own mixer, the
+                    // app itself), so keep the strip honest about the real OS state.
+                    if (existingViewModel.IsMuted != session.IsMuted)
+                    {
+                        existingViewModel.IsMuted = session.IsMuted;
+                    }
+
+                    // The safe-boost ceiling can be granted or revoked while
+                    // strips are live; pull anything now over the limit back down.
+                    if (Math.Abs(existingViewModel.MaxVolumePercent - ceiling) > 0.5)
+                    {
+                        existingViewModel.MaxVolumePercent = ceiling;
+                        if (existingViewModel.VolumePercent > ceiling)
+                        {
+                            existingViewModel.VolumePercent = ceiling;
+                        }
+                    }
+                }
+
                 continue;
             }
 
@@ -197,8 +221,8 @@ public sealed partial class MixerPage : Page
                 ProcessId = session.ProcessId,
                 DisplayName = string.IsNullOrWhiteSpace(session.DisplayName) ? displayName : session.DisplayName,
                 ExecutablePath = executablePath,
-                VolumePercent = savedVolumePercent ?? liveVolumePercent,
-                MaxVolumePercent = _boostCoordinator.CurrentCeilingPercent(DateTimeOffset.UtcNow),
+                VolumePercent = Math.Min(savedVolumePercent ?? liveVolumePercent, ceiling),
+                MaxVolumePercent = ceiling,
                 IsMuted = session.IsMuted,
             };
             viewModel.PropertyChanged += OnViewModelPropertyChanged;
@@ -248,6 +272,14 @@ public sealed partial class MixerPage : Page
 
     private async Task ApplyVolumeChangeAsync(SessionRowViewModel viewModel)
     {
+        // Dragging a fader unmutes, matching the Windows mixer. Reflect that in
+        // the view model too, otherwise the strip keeps showing a mute state the
+        // OS no longer has.
+        if (viewModel.IsMuted)
+        {
+            viewModel.IsMuted = false;
+        }
+
         await _boostCoordinator.SetVolumePercentAsync(viewModel.ProcessId, viewModel.VolumePercent);
         viewModel.IsBoosted = _boostCoordinator.IsBoosted(viewModel.ProcessId);
         UpdateStatusChips();

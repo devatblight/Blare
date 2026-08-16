@@ -31,6 +31,7 @@
             <SolidColorBrush x:Key="BlareMeterLow" Color="#FF3DD68C" />
             <SolidColorBrush x:Key="BlareMeterMid" Color="#FFF5C242" />
             <SolidColorBrush x:Key="BlareMeterHigh" Color="#FFE85D3A" />
+            <SolidColorBrush x:Key="BlareMeterUnlit" Color="#FF3A3F49" />
             <SolidColorBrush x:Key="BlareAccent" Color="#FF5A9FF5" />
             <CornerRadius x:Key="BlareStripCornerRadius">6</CornerRadius>
         </ResourceDictionary>

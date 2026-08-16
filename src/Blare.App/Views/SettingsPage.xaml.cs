@@ -73,9 +73,12 @@ public sealed partial class SettingsPage : Page
     {
         var now = DateTimeOffset.UtcNow;
 
+        // Going back to the safe ceiling is always allowed without ceremony.
         if (_boostCoordinator.CurrentCeilingPercent(now) >= BoostCoordinator.OverriddenCeilingPercent)
         {
-            return; // already granted and not yet expired
+            _boostCoordinator.RevokeCeilingOverride();
+            UpdateRaiseCeilingButton();
+            return;
         }
 
         var dialog = new RaiseBoostCeilingDialog { XamlRoot = XamlRoot };
@@ -91,7 +94,6 @@ public sealed partial class SettingsPage : Page
     private void UpdateRaiseCeilingButton()
     {
         var allowed = _boostCoordinator.CurrentCeilingPercent(DateTimeOffset.UtcNow) >= BoostCoordinator.OverriddenCeilingPercent;
-        RaiseCeilingButton.Content = allowed ? "Allowed" : "Allow up to 300%";
-        RaiseCeilingButton.IsEnabled = !allowed;
+        RaiseCeilingButton.Content = allowed ? "Back to 150% limit" : "Allow up to 300%";
     }
 }

@@ -59,8 +59,15 @@ public sealed class SpectrumMeter : UserControl
 
             for (var segment = 0; segment < SegmentsPerBar; segment++)
             {
-                // Segment 0 is the bottom of the bar.
-                _segments[bar, segment].Opacity = segment < lit ? 1.0 : 0.12;
+                // Segment 0 is the bottom of the bar. Unlit segments switch to a
+                // neutral fill rather than a faded version of their lit colour —
+                // otherwise an idle app shows a distracting ghost of the full
+                // green/amber/red ladder.
+                var rectangle = _segments[bar, segment];
+                var isLit = segment < lit;
+
+                rectangle.Fill = isLit ? BrushForSegment(segment) : UnlitBrush;
+                rectangle.Opacity = isLit ? 1.0 : 0.35;
             }
         }
     }
@@ -96,8 +103,8 @@ public sealed class SpectrumMeter : UserControl
                 {
                     RadiusX = 1,
                     RadiusY = 1,
-                    Fill = BrushForSegment(segment),
-                    Opacity = 0.12,
+                    Fill = UnlitBrush,
+                    Opacity = 0.35,
                 };
 
                 // Row 0 is the top of a Grid, but segment 0 is the bottom of the bar.
@@ -112,6 +119,10 @@ public sealed class SpectrumMeter : UserControl
 
         Content = root;
     }
+
+    private static Brush UnlitBrush =>
+        Application.Current.Resources["BlareMeterUnlit"] as Brush
+        ?? new SolidColorBrush(Microsoft.UI.Colors.DimGray);
 
     private static Brush BrushForSegment(int segment)
     {

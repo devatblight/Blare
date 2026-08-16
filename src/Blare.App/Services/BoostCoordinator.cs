@@ -37,6 +37,9 @@ public sealed class BoostCoordinator
 
     public void GrantCeilingOverride(DateTimeOffset now) => _consent.Grant(ConsentKind.SafeBoostCeilingOverride, now);
 
+    /// <summary>Drops back to the safe ceiling. Unlike granting, this needs no confirmation — moving toward safety is never gated.</summary>
+    public void RevokeCeilingOverride() => _consent.Revoke(ConsentKind.SafeBoostCeilingOverride);
+
     public async Task SetVolumePercentAsync(uint processId, double volumePercent)
     {
         if (volumePercent > 100)

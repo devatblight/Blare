@@ -56,32 +56,58 @@
             </Grid>
         </Border>
 
-        <!-- Status indicators -->
-        <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8">
-            <Border x:Name="BoostChip" CornerRadius="12" Padding="10,4" Background="{ThemeResource BlarePanelBackground}">
-                <StackPanel Orientation="Horizontal" Spacing="6">
-                    <FontIcon Glyph="&#xEC48;" FontSize="12" Foreground="{ThemeResource BlareMeterHigh}" />
-                    <TextBlock x:Name="BoostedCountText" Text="0 boosted" FontSize="12" />
-                </StackPanel>
+        <!-- Status tiles: big value, small label, coloured accent edge -->
+        <Grid Grid.Row="1" ColumnSpacing="10">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <Border Grid.Column="0" CornerRadius="{ThemeResource BlareStripCornerRadius}" Background="{ThemeResource BlareStripBackground}" BorderBrush="{ThemeResource BlareStripBorder}" BorderThickness="1">
+                <Grid>
+                    <Border Width="3" HorizontalAlignment="Left" CornerRadius="2" Background="{ThemeResource BlareMeterHigh}" />
+                    <StackPanel Margin="14,10" Spacing="1">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <TextBlock x:Name="BoostedCountText" Text="0" FontSize="22" FontWeight="SemiBold" FontFamily="Consolas" />
+                            <FontIcon Glyph="&#xEC48;" FontSize="12" Foreground="{ThemeResource BlareMeterHigh}" VerticalAlignment="Bottom" Margin="0,0,0,5" />
+                        </StackPanel>
+                        <TextBlock Text="BOOSTED" FontSize="10" FontWeight="SemiBold" Opacity="0.55" />
+                    </StackPanel>
+                </Grid>
             </Border>
-            <Border x:Name="WarningChip" CornerRadius="12" Padding="10,4" Background="{ThemeResource BlarePanelBackground}">
-                <StackPanel Orientation="Horizontal" Spacing="6">
-                    <FontIcon Glyph="&#xE7BA;" FontSize="12" Foreground="{ThemeResource BlareMeterMid}" />
-                    <TextBlock x:Name="WarningCountText" Text="0 warnings" FontSize="12" />
-                </StackPanel>
+
+            <Border Grid.Column="1" CornerRadius="{ThemeResource BlareStripCornerRadius}" Background="{ThemeResource BlareStripBackground}" BorderBrush="{ThemeResource BlareStripBorder}" BorderThickness="1">
+                <Grid>
+                    <Border Width="3" HorizontalAlignment="Left" CornerRadius="2" Background="{ThemeResource BlareMeterMid}" />
+                    <StackPanel Margin="14,10" Spacing="1">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <TextBlock x:Name="WarningCountText" Text="0" FontSize="22" FontWeight="SemiBold" FontFamily="Consolas" />
+                            <FontIcon Glyph="&#xE7BA;" FontSize="12" Foreground="{ThemeResource BlareMeterMid}" VerticalAlignment="Bottom" Margin="0,0,0,5" />
+                        </StackPanel>
+                        <TextBlock Text="WARNINGS" FontSize="10" FontWeight="SemiBold" Opacity="0.55" />
+                    </StackPanel>
+                </Grid>
             </Border>
-            <Border x:Name="ExposureChip" CornerRadius="12" Padding="10,4" Background="{ThemeResource BlarePanelBackground}">
-                <StackPanel Orientation="Horizontal" Spacing="6">
-                    <FontIcon Glyph="&#xE917;" FontSize="12" Opacity="0.7" />
-                    <TextBlock x:Name="ExposureText" Text="0m loud" FontSize="12" />
-                </StackPanel>
+
+            <Border Grid.Column="2" CornerRadius="{ThemeResource BlareStripCornerRadius}" Background="{ThemeResource BlareStripBackground}" BorderBrush="{ThemeResource BlareStripBorder}" BorderThickness="1">
+                <Grid>
+                    <Border Width="3" HorizontalAlignment="Left" CornerRadius="2" Background="{ThemeResource BlareAccent}" />
+                    <StackPanel Margin="14,10" Spacing="4">
+                        <TextBlock x:Name="ExposureText" Text="0m" FontSize="22" FontWeight="SemiBold" FontFamily="Consolas" />
+                        <StackPanel Spacing="3">
+                            <TextBlock Text="TIME LOUD" FontSize="10" FontWeight="SemiBold" Opacity="0.55" />
+                            <ProgressBar x:Name="ExposureBar" Height="3" Minimum="0" Maximum="100" Value="0" CornerRadius="2" Foreground="{ThemeResource BlareAccent}" />
+                        </StackPanel>
+                    </StackPanel>
+                </Grid>
             </Border>
-        </StackPanel>
+        </Grid>
 
         <InfoBar
             x:Name="WarningInfoBar"
-            Grid.Row="1"
-            Margin="0,40,0,0"
+            Grid.Row="2"
+            VerticalAlignment="Top"
             Severity="Warning"
             Title="Running loud"
             IsOpen="False"
@@ -90,11 +116,13 @@
         <!-- The desk itself: one strip per app, scrolling horizontally -->
         <ScrollViewer
             Grid.Row="2"
+            Padding="0,8,0,0"
             HorizontalScrollMode="Auto"
             HorizontalScrollBarVisibility="Auto"
             VerticalScrollMode="Disabled"
             VerticalScrollBarVisibility="Disabled">
-            <StackPanel x:Name="StripsPanel" Orientation="Horizontal" Spacing="10" />
+            <!-- Centred so a couple of strips don't sit in a sea of empty space. -->
+            <StackPanel x:Name="StripsPanel" Orientation="Horizontal" Spacing="10" HorizontalAlignment="Center" />
         </ScrollViewer>
 
         <TextBlock

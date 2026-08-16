@@ -82,6 +82,12 @@ public sealed partial class ChannelStrip : UserControl
                 _suppressPush = false;
                 UpdateVolumeText();
                 break;
+            case nameof(SessionRowViewModel.IsMuted):
+                _suppressPush = true;
+                MuteButton.IsChecked = _viewModel.IsMuted;
+                MuteIcon.Glyph = _viewModel.IsMuted ? MutedGlyph : SpeakerGlyph;
+                _suppressPush = false;
+                break;
         }
     }
 
@@ -98,7 +104,7 @@ public sealed partial class ChannelStrip : UserControl
 
     private void OnMuteToggled(object sender, RoutedEventArgs e)
     {
-        if (_viewModel is null)
+        if (_viewModel is null || _suppressPush)
         {
             return;
         }

@@ -65,6 +65,7 @@ public sealed class ThemeService
                 resources["BlareMeterLow"] = Brush(0x3D, 0xD6, 0x8C);
                 resources["BlareMeterMid"] = Brush(0xF5, 0xC2, 0x42);
                 resources["BlareMeterHigh"] = Brush(0xE8, 0x5D, 0x3A);
+                resources["BlareMeterUnlit"] = Brush(0x3A, 0x3F, 0x49);
                 resources["BlareAccent"] = Brush(0x5A, 0x9F, 0xF5);
                 resources["BlareStripCornerRadius"] = new CornerRadius(6);
                 break;
@@ -77,6 +78,7 @@ public sealed class ThemeService
                 resources["BlareMeterLow"] = resources["SystemFillColorSuccessBrush"];
                 resources["BlareMeterMid"] = resources["SystemFillColorCautionBrush"];
                 resources["BlareMeterHigh"] = resources["SystemFillColorCriticalBrush"];
+                resources["BlareMeterUnlit"] = resources["ControlStrongFillColorDisabledBrush"];
                 resources["BlareAccent"] = resources["AccentFillColorDefaultBrush"];
                 resources["BlareStripCornerRadius"] = new CornerRadius(8);
                 break;

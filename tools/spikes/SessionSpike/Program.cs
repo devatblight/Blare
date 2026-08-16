@@ -1,76 +1,49 @@
 using BLight.Blare.Audio.Boost;
-using BLight.Blare.Audio.Devices;
 using BLight.Blare.Audio.Sessions;
 
+// Follow-up diagnostic: mute is confirmed to zero the loopback capture.
+// Does session VOLUME do the same, or is volume applied after the capture
+// tap? If capture survives volume=0, boost can silence the original to the
+// speakers while still capturing full-strength signal to amplify.
+
 var manager = new AudioSessionManager();
-var sessions = manager.GetSessionsForDefaultDevice();
+var capture = new ProcessLoopbackCapture();
 
-Console.WriteLine($"Found {sessions.Count} session(s) on the default render device:\n");
+var sessions = manager.GetSessionsForDefaultDevice()
+    .Where(s => !s.IsSystemSoundsSession)
+    .ToList();
 
-foreach (var session in sessions)
+var target = sessions.OrderByDescending(s => s.PeakLevel).FirstOrDefault();
+
+if (target is null || target.PeakLevel <= 0.0001f)
 {
-    Console.WriteLine(
-        $"pid={session.ProcessId,-6} name=\"{session.DisplayName}\" " +
-        $"volume={session.Volume:P0} muted={session.IsMuted} peak={session.PeakLevel:F3} " +
-        $"systemSounds={session.IsSystemSoundsSession} grouping={session.GroupingParam}");
+    Console.WriteLine("Nothing is producing audio — play something and re-run.");
+    return;
 }
 
-Console.WriteLine();
+Console.WriteLine($"Target: pid={target.ProcessId} (current peak {target.PeakLevel:F4})\n");
 
-var deviceManager = new AudioDeviceManager();
-var devices = deviceManager.GetRenderDevices();
+var originalVolume = target.Volume;
 
-Console.WriteLine($"Found {devices.Count} render device(s):\n");
-
-foreach (var device in devices)
+try
 {
-    var volume = deviceManager.GetMasterVolume(device.DeviceId);
-    Console.WriteLine(
-        $"\"{device.DisplayName}\" default={device.IsDefault} volume={volume:P0} id={device.DeviceId}");
-}
-
-var target = sessions.FirstOrDefault(s => !s.IsSystemSoundsSession);
-if (target is not null)
-{
-    Console.WriteLine();
-    Console.WriteLine($"Spike B: capturing pid={target.ProcessId} via per-process WASAPI loopback for 3s...");
-
-    var capture = new ProcessLoopbackCapture();
-    try
+    foreach (var level in new[] { 1.0f, 0.5f, 0.0f })
     {
-        var result = await capture.CaptureAsync(target.ProcessId, TimeSpan.FromSeconds(3));
-        Console.WriteLine(
-            $"Activation latency: {result.ActivationLatency.TotalMilliseconds:F1}ms, " +
-            $"packets={result.PacketsCaptured}, frames={result.FramesCaptured}, peak={result.PeakAmplitude:F4}");
-    }
-    catch (Exception ex)
-    {
-        Console.WriteLine($"Spike B FAILED: {ex}");
+        manager.SetMute(target.ProcessId, false);
+        manager.SetVolume(target.ProcessId, level);
+        await Task.Delay(400);
+
+        var result = await capture.CaptureAsync(target.ProcessId, TimeSpan.FromSeconds(2));
+        Console.WriteLine($"volume={level,-5:P0} capture peak={result.PeakAmplitude:F6}");
     }
 
     Console.WriteLine();
-    Console.WriteLine($"Boost pipeline: starting full capture->gain->limiter->render for pid={target.ProcessId}, 5s...");
-    var boostEngine = new BoostEngine(manager);
-    try
-    {
-        boostEngine.Start(target.ProcessId, gainLinear: 2.0f);
-        var muteDuringBoost = manager.GetSessionsForDefaultDevice().FirstOrDefault(s => s.ProcessId == target.ProcessId)?.IsMuted;
-        Console.WriteLine($"  original session muted while boosting: {muteDuringBoost}");
-
-        await Task.Delay(5000);
-
-        await boostEngine.StopAsync();
-        var muteAfterStop = manager.GetSessionsForDefaultDevice().FirstOrDefault(s => s.ProcessId == target.ProcessId)?.IsMuted;
-        Console.WriteLine($"  original session muted after stop: {muteAfterStop}");
-        Console.WriteLine("Boost pipeline ran and stopped cleanly.");
-    }
-    catch (Exception ex)
-    {
-        Console.WriteLine($"Boost pipeline FAILED: {ex}");
-    }
+    Console.WriteLine("If peak scales with volume  -> capture is POST-volume; volume=0 also captures silence.");
+    Console.WriteLine("If peak stays constant      -> capture is PRE-volume; we can silence via volume=0 and still boost.");
 }
-else
+finally
 {
-    Console.WriteLine();
-    Console.WriteLine("Spike B: no non-system session available to target.");
+    manager.SetVolume(target.ProcessId, originalVolume);
+    manager.SetMute(target.ProcessId, false);
+    Console.WriteLine($"\nRestored volume to {originalVolume:P0}, unmuted.");
 }
