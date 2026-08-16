@@ -1,6 +1,7 @@
 using BLight.Blare.App.Services;
 using BLight.Blare.Audio.Sessions;
 using BLight.Blare.Core.Safety;
+using BLight.Blare.Core.Settings;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml;
 
@@ -37,10 +38,17 @@ public partial class App : Application
     {
         var services = new ServiceCollection();
 
+        var settingsDirectory = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "BLight",
+            "Blare");
+
         services.AddSingleton<AudioSessionManager>();
         services.AddSingleton<LoudnessTracker>();
         services.AddSingleton<ConsentState>();
         services.AddSingleton<TrayIconService>();
+        services.AddSingleton<ISettingsStore>(new JsonFileSettingsStore(settingsDirectory));
+        services.AddSingleton<SessionVolumeStore>();
         services.AddTransient<MainWindow>();
 
         return services.BuildServiceProvider();

@@ -14,6 +14,9 @@ public sealed class SessionRowViewModel : INotifyPropertyChanged
 
     public string DisplayName { get; set; } = string.Empty;
 
+    /// <summary>Stable identity used as the persistence key — empty when the process couldn't be resolved.</summary>
+    public string ExecutablePath { get; set; } = string.Empty;
+
     public double VolumePercent
     {
         get => _volumePercent;

@@ -4,6 +4,7 @@ using System.Diagnostics;
 using BLight.Blare.App.Services;
 using BLight.Blare.App.ViewModels;
 using BLight.Blare.Audio.Sessions;
+using BLight.Blare.Core.Settings;
 using Microsoft.UI.Composition.SystemBackdrops;
 using Microsoft.UI.Xaml;
 using WinRT;
@@ -13,6 +14,7 @@ namespace BLight.Blare.App;
 public sealed partial class MainWindow : Window
 {
     private readonly AudioSessionManager _sessionManager;
+    private readonly SessionVolumeStore _volumeStore;
     private readonly IconResolver _iconResolver = new();
     private MicaController? _micaController;
     private SystemBackdropConfiguration? _backdropConfiguration;
@@ -20,15 +22,22 @@ public sealed partial class MainWindow : Window
 
     public ObservableCollection<SessionRowViewModel> Sessions { get; } = new();
 
-    public MainWindow(AudioSessionManager sessionManager)
+    public MainWindow(AudioSessionManager sessionManager, SessionVolumeStore volumeStore)
     {
         _sessionManager = sessionManager;
+        _volumeStore = volumeStore;
         InitializeComponent();
 
         Title = "Blare";
         TrySetMicaBackdrop();
 
-        _ = RefreshSessionsAsync();
+        _ = InitializeAsync();
+    }
+
+    private async Task InitializeAsync()
+    {
+        await _volumeStore.LoadAsync();
+        await RefreshSessionsAsync();
     }
 
     private void TrySetMicaBackdrop()
@@ -62,11 +71,22 @@ public sealed partial class MainWindow : Window
 
             var (displayName, executablePath) = ResolveProcessInfo(session);
 
+            var liveVolumePercent = Math.Round(session.Volume * 100);
+            var savedVolumePercent = string.IsNullOrEmpty(executablePath)
+                ? null
+                : _volumeStore.GetVolume(executablePath);
+
+            if (savedVolumePercent is { } saved && Math.Abs(saved - liveVolumePercent) > 0.5)
+            {
+                _sessionManager.SetVolume(session.ProcessId, (float)(saved / 100.0));
+            }
+
             var row = new SessionRowViewModel
             {
                 ProcessId = session.ProcessId,
                 DisplayName = string.IsNullOrWhiteSpace(session.DisplayName) ? displayName : session.DisplayName,
-                VolumePercent = Math.Round(session.Volume * 100),
+                ExecutablePath = executablePath,
+                VolumePercent = savedVolumePercent ?? liveVolumePercent,
                 IsMuted = session.IsMuted,
             };
             row.PropertyChanged += OnRowPropertyChanged;
@@ -101,6 +121,11 @@ public sealed partial class MainWindow : Window
         {
             case nameof(SessionRowViewModel.VolumePercent):
                 _sessionManager.SetVolume(row.ProcessId, (float)(row.VolumePercent / 100.0));
+                if (!string.IsNullOrEmpty(row.ExecutablePath))
+                {
+                    _ = _volumeStore.SetVolumeAsync(row.ExecutablePath, row.VolumePercent);
+                }
+
                 break;
             case nameof(SessionRowViewModel.IsMuted):
                 _sessionManager.SetMute(row.ProcessId, row.IsMuted);
