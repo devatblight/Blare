@@ -1,6 +1,5 @@
 using System.Runtime.InteropServices;
 using Windows.Win32;
-using Windows.Win32.Foundation;
 using Windows.Win32.Media.Audio;
 using Windows.Win32.Media.Audio.Endpoints;
 using Windows.Win32.System.Com;
@@ -8,6 +7,7 @@ using Windows.Win32.System.Com;
 namespace BLight.Blare.Audio.Sessions;
 
 public sealed record AudioSessionInfo(
+    string SessionKey,
     uint ProcessId,
     string DisplayName,
     Guid GroupingParam,
@@ -17,35 +17,21 @@ public sealed record AudioSessionInfo(
     bool IsSystemSoundsSession);
 
 /// <summary>
-/// Phase 1 session enumeration/control (see plan §2). This is the
-/// Milestone-0-spike-derived first pass: enumerates sessions on the
-/// current default render device and reads their volume/mute/peak state.
-/// Grouping-into-one-row, expiry debounce, and live event subscriptions
-/// (IAudioSessionEvents/IMMNotificationClient) are follow-up work, not
-/// re-derived here.
+/// Phase 1 session enumeration/control (see plan §2): enumerates sessions
+/// on the current default render device, reads their volume/mute/peak
+/// state, and lets the UI push volume/mute changes back. Grouping (see
+/// <see cref="SessionGroupTracker"/>) and live event subscriptions
+/// (IAudioSessionEvents/IMMNotificationClient) are follow-up work — this
+/// re-enumerates on every call rather than holding COM pointers across
+/// calls, which is simpler and safer for now given how infrequently the UI
+/// actually pushes a change.
 /// </summary>
 public sealed class AudioSessionManager
 {
     public unsafe IReadOnlyList<AudioSessionInfo> GetSessionsForDefaultDevice()
     {
-        var enumerator = (IMMDeviceEnumerator)new MMDeviceEnumerator();
-        enumerator.GetDefaultAudioEndpoint(EDataFlow.eRender, ERole.eMultimedia, out var device);
-        return GetSessions(device);
-    }
-
-    internal unsafe IReadOnlyList<AudioSessionInfo> GetSessions(IMMDevice device)
-    {
-        var sessionManagerIid = typeof(IAudioSessionManager2).GUID;
-        device.Activate(&sessionManagerIid, CLSCTX.CLSCTX_ALL, null, out var sessionManagerObj);
-        var sessionManager = (IAudioSessionManager2)sessionManagerObj;
-
-        var sessionEnumerator = sessionManager.GetSessionEnumerator();
-        sessionEnumerator.GetCount(out var count);
-
-        var results = new List<AudioSessionInfo>(count);
-        for (var i = 0; i < count; i++)
+        return EnumerateSessions(control =>
         {
-            sessionEnumerator.GetSession(i, out var control);
             var control2 = (IAudioSessionControl2)control;
 
             control2.GetProcessId(out var processId);
@@ -53,15 +39,13 @@ public sealed class AudioSessionManager
             // "successful" HRESULTs, so this has to check the raw value, not .Succeeded.
             var isSystemSounds = control2.IsSystemSoundsSession().Value == 0;
 
-            control2.GetDisplayName(out var displayNamePtr);
-            var displayName = displayNamePtr.ToString();
-            if (displayNamePtr.Value is not null)
-            {
-                Marshal.FreeCoTaskMem((IntPtr)displayNamePtr.Value);
-            }
+            control2.GetSessionIdentifier(out var sessionKeyPtr);
+            var sessionKey = FreeAndReadString(sessionKeyPtr);
 
-            Guid groupingParam;
-            control2.GetGroupingParam(&groupingParam);
+            control2.GetDisplayName(out var displayNamePtr);
+            var displayName = FreeAndReadString(displayNamePtr);
+
+            var groupingParam = GetGroupingParam(control2);
 
             var simpleVolume = (ISimpleAudioVolume)control;
             simpleVolume.GetMasterVolume(out var volume);
@@ -70,16 +54,77 @@ public sealed class AudioSessionManager
             var meter = (IAudioMeterInformation)control;
             meter.GetPeakValue(out var peak);
 
-            results.Add(new AudioSessionInfo(
+            return new AudioSessionInfo(
+                sessionKey,
                 processId,
                 displayName,
                 groupingParam,
                 volume,
                 isMuted != 0,
                 peak,
-                isSystemSounds));
+                isSystemSounds);
+        });
+    }
+
+    public unsafe void SetVolume(uint processId, float level) =>
+        WithSimpleVolumeForProcess(processId, sv => sv.SetMasterVolume(level, null));
+
+    public unsafe void SetMute(uint processId, bool isMuted) =>
+        WithSimpleVolumeForProcess(processId, sv => sv.SetMute(isMuted, null));
+
+    private unsafe List<T> EnumerateSessions<T>(Func<IAudioSessionControl, T> select)
+    {
+        var enumerator = (IMMDeviceEnumerator)new MMDeviceEnumerator();
+        enumerator.GetDefaultAudioEndpoint(EDataFlow.eRender, ERole.eMultimedia, out var device);
+
+        var sessionManagerIid = typeof(IAudioSessionManager2).GUID;
+        device.Activate(&sessionManagerIid, CLSCTX.CLSCTX_ALL, null, out var sessionManagerObj);
+        var sessionManager = (IAudioSessionManager2)sessionManagerObj;
+
+        var sessionEnumerator = sessionManager.GetSessionEnumerator();
+        sessionEnumerator.GetCount(out var count);
+
+        var results = new List<T>(count);
+        for (var i = 0; i < count; i++)
+        {
+            sessionEnumerator.GetSession(i, out var control);
+            results.Add(select(control));
         }
 
         return results;
+    }
+
+    private unsafe void WithSimpleVolumeForProcess(uint processId, Action<ISimpleAudioVolume> action)
+    {
+        EnumerateSessions<object?>(control =>
+        {
+            var control2 = (IAudioSessionControl2)control;
+            control2.GetProcessId(out var pid);
+
+            if (pid == processId)
+            {
+                action((ISimpleAudioVolume)control);
+            }
+
+            return null;
+        });
+    }
+
+    private static unsafe Guid GetGroupingParam(IAudioSessionControl2 control2)
+    {
+        Guid groupingParam;
+        control2.GetGroupingParam(&groupingParam);
+        return groupingParam;
+    }
+
+    private static unsafe string FreeAndReadString(Windows.Win32.Foundation.PWSTR ptr)
+    {
+        var value = ptr.ToString();
+        if (ptr.Value is not null)
+        {
+            Marshal.FreeCoTaskMem((IntPtr)ptr.Value);
+        }
+
+        return value;
     }
 }

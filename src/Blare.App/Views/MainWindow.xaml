@@ -2,6 +2,7 @@
     x:Class="BLight.Blare.App.MainWindow"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:vm="using:BLight.Blare.App.ViewModels"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006">
 
@@ -23,6 +24,45 @@
             x:Name="SessionListView"
             Grid.Row="1"
             Margin="0,16,0,0"
-            SelectionMode="None" />
+            SelectionMode="None"
+            ItemsSource="{x:Bind Sessions}">
+            <ListView.ItemTemplate>
+                <DataTemplate x:DataType="vm:SessionRowViewModel">
+                    <Grid Margin="0,4" ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="32" />
+                            <ColumnDefinition Width="180" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+
+                        <Image
+                            Grid.Column="0"
+                            Width="24"
+                            Height="24"
+                            Source="{x:Bind Icon, Mode=OneWay}" />
+
+                        <TextBlock
+                            Grid.Column="1"
+                            Text="{x:Bind DisplayName}"
+                            VerticalAlignment="Center"
+                            TextTrimming="CharacterEllipsis" />
+
+                        <Slider
+                            Grid.Column="2"
+                            Minimum="0"
+                            Maximum="100"
+                            Value="{x:Bind VolumePercent, Mode=TwoWay}"
+                            VerticalAlignment="Center" />
+
+                        <ToggleSwitch
+                            Grid.Column="3"
+                            OnContent="Muted"
+                            OffContent="Muted"
+                            IsOn="{x:Bind IsMuted, Mode=TwoWay}" />
+                    </Grid>
+                </DataTemplate>
+            </ListView.ItemTemplate>
+        </ListView>
     </Grid>
 </Window>

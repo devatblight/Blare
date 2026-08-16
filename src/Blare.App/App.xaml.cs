@@ -1,3 +1,4 @@
+using BLight.Blare.App.Services;
 using BLight.Blare.Audio.Sessions;
 using BLight.Blare.Core.Safety;
 using Microsoft.Extensions.DependencyInjection;
@@ -10,6 +11,7 @@ public partial class App : Application
     public static IServiceProvider Services { get; private set; } = null!;
 
     private Window? _mainWindow;
+    private TrayIconService? _trayIcon;
 
     public App()
     {
@@ -21,6 +23,14 @@ public partial class App : Application
     {
         _mainWindow = Services.GetRequiredService<MainWindow>();
         _mainWindow.Activate();
+
+        _trayIcon = Services.GetRequiredService<TrayIconService>();
+        _trayIcon.OpenRequested += (_, _) => _mainWindow.Activate();
+        _trayIcon.ExitRequested += (_, _) =>
+        {
+            _trayIcon.Dispose();
+            Exit();
+        };
     }
 
     private static IServiceProvider BuildServiceProvider()
@@ -30,6 +40,7 @@ public partial class App : Application
         services.AddSingleton<AudioSessionManager>();
         services.AddSingleton<LoudnessTracker>();
         services.AddSingleton<ConsentState>();
+        services.AddSingleton<TrayIconService>();
         services.AddTransient<MainWindow>();
 
         return services.BuildServiceProvider();

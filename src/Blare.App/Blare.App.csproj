@@ -35,6 +35,17 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!--
+      System.Drawing.Icon (process icon extraction) and
+      System.Windows.Forms.NotifyIcon (tray icon, since WinUI 3 has no
+      native tray API) — referenced directly rather than via
+      UseWindowsForms=true, which pulls in WPF's markup compiler and
+      conflicts with WinUI 3's own XAML compiler over *.xaml Page items.
+    -->
+    <FrameworkReference Include="Microsoft.WindowsDesktop.App.WindowsForms" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Manifest Include="$(ApplicationManifest)" />
   </ItemGroup>
 
