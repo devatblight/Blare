@@ -9,6 +9,30 @@
                 <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
                 <ResourceDictionary Source="ms-appx:///CommunityToolkit.WinUI.Controls.SettingsControls/Themes/generic.xaml" />
             </ResourceDictionary.MergedDictionaries>
+
+            <!--
+              Lives here, not in each dialog's own Resources: a dialog that sets
+              PrimaryButtonStyle as a root attribute resolves that StaticResource
+              before its own Resources block is parsed, which throws at load.
+            -->
+            <Style x:Key="DangerButtonStyle" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
+                <Setter Property="Background" Value="#FFC42B1C" />
+                <Setter Property="Foreground" Value="White" />
+                <Setter Property="BorderBrush" Value="#FFA02318" />
+            </Style>
+
+            <!--
+              Seed values so XAML using these keys resolves at parse time;
+              ThemeService overwrites them at startup with the chosen theme.
+            -->
+            <SolidColorBrush x:Key="BlarePanelBackground" Color="#FF14161A" />
+            <SolidColorBrush x:Key="BlareStripBackground" Color="#FF1B1E24" />
+            <SolidColorBrush x:Key="BlareStripBorder" Color="#FF2A2E36" />
+            <SolidColorBrush x:Key="BlareMeterLow" Color="#FF3DD68C" />
+            <SolidColorBrush x:Key="BlareMeterMid" Color="#FFF5C242" />
+            <SolidColorBrush x:Key="BlareMeterHigh" Color="#FFE85D3A" />
+            <SolidColorBrush x:Key="BlareAccent" Color="#FF5A9FF5" />
+            <CornerRadius x:Key="BlareStripCornerRadius">6</CornerRadius>
         </ResourceDictionary>
     </Application.Resources>
 </Application>

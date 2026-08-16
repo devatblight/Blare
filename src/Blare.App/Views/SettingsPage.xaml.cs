@@ -9,16 +9,35 @@ public sealed partial class SettingsPage : Page
 {
     private readonly SafetyMonitor _safetyMonitor;
     private readonly BoostCoordinator _boostCoordinator;
+    private readonly ThemeService _themeService;
+    private bool _initializing = true;
 
     public SettingsPage()
     {
         _safetyMonitor = App.Services.GetRequiredService<SafetyMonitor>();
         _boostCoordinator = App.Services.GetRequiredService<BoostCoordinator>();
+        _themeService = App.Services.GetRequiredService<ThemeService>();
 
         InitializeComponent();
 
+        ThemeComboBox.SelectedIndex = _themeService.Current == BlareTheme.StudioDark ? 1 : 0;
+        _initializing = false;
+
         UpdateToggleWarningsButton();
         UpdateRaiseCeilingButton();
+    }
+
+    private async void OnThemeChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_initializing || ThemeComboBox.SelectedItem is not ComboBoxItem { Tag: string tag })
+        {
+            return;
+        }
+
+        if (Enum.TryParse<BlareTheme>(tag, out var theme))
+        {
+            await _themeService.SetAsync(theme);
+        }
     }
 
     private async void OnToggleWarningsClick(object sender, RoutedEventArgs e)
@@ -32,7 +51,7 @@ public sealed partial class SettingsPage : Page
             return;
         }
 
-        var dialog = new DisableWarningsDialog { XamlRoot = Content.XamlRoot };
+        var dialog = new DisableWarningsDialog { XamlRoot = XamlRoot };
         var result = await dialog.ShowAsync();
 
         if (result == ContentDialogResult.Primary)
@@ -59,7 +78,7 @@ public sealed partial class SettingsPage : Page
             return; // already granted and not yet expired
         }
 
-        var dialog = new RaiseBoostCeilingDialog { XamlRoot = Content.XamlRoot };
+        var dialog = new RaiseBoostCeilingDialog { XamlRoot = XamlRoot };
         var result = await dialog.ShowAsync();
 
         if (result == ContentDialogResult.Primary)

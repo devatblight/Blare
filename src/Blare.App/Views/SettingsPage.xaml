@@ -10,7 +10,21 @@
         <StackPanel Spacing="4" MaxWidth="760" HorizontalAlignment="Stretch">
             <TextBlock Text="Settings" Style="{StaticResource TitleLargeTextBlockStyle}" Margin="0,0,0,12" />
 
-            <TextBlock Text="Safety" Style="{StaticResource BodyStrongTextBlockStyle}" Margin="0,8,0,4" />
+            <TextBlock Text="Appearance" Style="{StaticResource BodyStrongTextBlockStyle}" Margin="0,8,0,4" />
+
+            <controls:SettingsCard
+                Header="Theme"
+                Description="Native Fluent matches stock Windows 11. Studio Dark uses darker panels and pro-audio accent colours.">
+                <controls:SettingsCard.HeaderIcon>
+                    <FontIcon Glyph="&#xE790;" />
+                </controls:SettingsCard.HeaderIcon>
+                <ComboBox x:Name="ThemeComboBox" MinWidth="160" SelectionChanged="OnThemeChanged">
+                    <ComboBoxItem Content="Native Fluent" Tag="NativeFluent" />
+                    <ComboBoxItem Content="Studio Dark" Tag="StudioDark" />
+                </ComboBox>
+            </controls:SettingsCard>
+
+            <TextBlock Text="Safety" Style="{StaticResource BodyStrongTextBlockStyle}" Margin="0,24,0,4" />
 
             <controls:SettingsCard
                 Header="Health warnings"

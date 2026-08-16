@@ -28,6 +28,10 @@ public sealed class SafetyMonitor
     /// <summary>How many times an app has newly crossed into a warned state this run — a transition count, not a per-sample tally, so an ongoing warning doesn't keep inflating it.</summary>
     public int WarningCount { get; private set; }
 
+    /// <summary>Total time any app has spent above the loud threshold, summed across apps. A rough exposure figure for the UI, not a clinical dose measurement.</summary>
+    public TimeSpan TotalTimeAboveThreshold =>
+        _tracker.Windows.Values.Aggregate(TimeSpan.Zero, (total, window) => total + window.TimeAboveThreshold);
+
     /// <summary>Feeds one sampling tick and returns app keys currently past the warn-after duration, empty if warnings are opted out (and that opt-out hasn't expired).</summary>
     public IReadOnlyList<string> Sample(IEnumerable<(string AppKey, double VolumePercent)> sessions, DateTimeOffset now)
     {

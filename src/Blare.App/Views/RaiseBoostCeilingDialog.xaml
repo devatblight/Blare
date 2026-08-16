@@ -9,14 +9,6 @@
     IsPrimaryButtonEnabled="False"
     PrimaryButtonStyle="{StaticResource DangerButtonStyle}">
 
-    <ContentDialog.Resources>
-        <Style x:Key="DangerButtonStyle" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
-            <Setter Property="Background" Value="#FFC42B1C" />
-            <Setter Property="Foreground" Value="White" />
-            <Setter Property="BorderBrush" Value="#FFC42B1C" />
-        </Style>
-    </ContentDialog.Resources>
-
     <StackPanel Spacing="14" MaxWidth="420">
         <InfoBar
             IsOpen="True"

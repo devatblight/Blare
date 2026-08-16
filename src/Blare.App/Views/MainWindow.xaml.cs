@@ -19,8 +19,9 @@ public sealed partial class MainWindow : Window
         TrySetMicaBackdrop();
 
         // WinUI3 windows have no sane default size — left alone this opens
-        // near full-screen. A compact mixer doesn't need that much room.
-        AppWindow.Resize(new Windows.Graphics.SizeInt32(480, 640));
+        // near full-screen. Sized to fit the nav rail plus roughly five
+        // channel strips before the desk needs to scroll.
+        AppWindow.Resize(new Windows.Graphics.SizeInt32(760, 620));
 
         ContentFrame.Navigate(typeof(MixerPage));
     }

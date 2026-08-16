@@ -1,13 +1,15 @@
-using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
+using BLight.Blare.App.Controls;
 using BLight.Blare.App.Services;
 using BLight.Blare.App.ViewModels;
+using BLight.Blare.Audio.Analysis;
 using BLight.Blare.Audio.Devices;
 using BLight.Blare.Audio.Sessions;
 using BLight.Blare.Core.Settings;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Dispatching;
+using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 
 namespace BLight.Blare.App.Views;
@@ -19,14 +21,16 @@ public sealed partial class MixerPage : Page
     private readonly SessionVolumeStore _volumeStore;
     private readonly SafetyMonitor _safetyMonitor;
     private readonly BoostCoordinator _boostCoordinator;
+    private readonly SpectrumMonitor _spectrumMonitor;
     private readonly IconResolver _iconResolver = new();
     private readonly DispatcherQueueTimer _safetyTimer;
     private readonly DispatcherQueueTimer _meterTimer;
-    private bool _suppressVolumePush;
+    private readonly DispatcherQueueTimer _sessionTimer;
+    private readonly Dictionary<uint, ChannelStrip> _strips = new();
+    private readonly double[] _bandScratch;
+
     private bool _suppressMasterVolumePush;
     private string? _masterDeviceId;
-
-    public ObservableCollection<SessionRowViewModel> Sessions { get; } = new();
 
     public MixerPage()
     {
@@ -35,35 +39,47 @@ public sealed partial class MixerPage : Page
         _volumeStore = App.Services.GetRequiredService<SessionVolumeStore>();
         _safetyMonitor = App.Services.GetRequiredService<SafetyMonitor>();
         _boostCoordinator = App.Services.GetRequiredService<BoostCoordinator>();
+        _spectrumMonitor = App.Services.GetRequiredService<SpectrumMonitor>();
+        _bandScratch = new double[_spectrumMonitor.BandCount];
 
         InitializeComponent();
 
-        _safetyTimer = DispatcherQueue.CreateTimer();
-        _safetyTimer.Interval = TimeSpan.FromSeconds(5);
-        _safetyTimer.Tick += (_, _) => RunSafetySample();
-        _safetyTimer.Start();
+        _safetyTimer = CreateTimer(TimeSpan.FromSeconds(5), RunSafetySample);
+        _meterTimer = CreateTimer(TimeSpan.FromMilliseconds(50), RefreshMeters);
+        _sessionTimer = CreateTimer(TimeSpan.FromSeconds(3), () => _ = RefreshSessionsAsync());
 
-        // Fast enough to read as a live meter without hammering the audio APIs.
-        _meterTimer = DispatcherQueue.CreateTimer();
-        _meterTimer.Interval = TimeSpan.FromMilliseconds(120);
-        _meterTimer.Tick += (_, _) => RefreshLiveLevels();
-        _meterTimer.Start();
+        Unloaded += (_, _) =>
+        {
+            _safetyTimer.Stop();
+            _meterTimer.Stop();
+            _sessionTimer.Stop();
+            // Capture streams are expensive — never leave them running for a page nobody's looking at.
+            _spectrumMonitor.StopAll();
+        };
 
         _ = InitializeAsync();
+    }
+
+    private DispatcherQueueTimer CreateTimer(TimeSpan interval, Action tick)
+    {
+        var timer = DispatcherQueue.CreateTimer();
+        timer.Interval = interval;
+        timer.Tick += (_, _) => tick();
+        timer.Start();
+        return timer;
     }
 
     private async Task InitializeAsync()
     {
         await _volumeStore.LoadAsync();
-        await RefreshSessionsAsync();
         RefreshMasterDevice();
+        await RefreshSessionsAsync();
         UpdateStatusChips();
     }
 
     private void RefreshMasterDevice()
     {
-        var devices = _deviceManager.GetRenderDevices();
-        var defaultDevice = devices.FirstOrDefault(d => d.IsDefault);
+        var defaultDevice = _deviceManager.GetRenderDevices().FirstOrDefault(d => d.IsDefault);
         if (defaultDevice is null)
         {
             return;
@@ -75,10 +91,13 @@ public sealed partial class MixerPage : Page
         _suppressMasterVolumePush = true;
         MasterVolumeSlider.Value = Math.Round(_deviceManager.GetMasterVolume(defaultDevice.DeviceId) * 100);
         _suppressMasterVolumePush = false;
+        MasterVolumeText.Text = $"{MasterVolumeSlider.Value:F0}%";
     }
 
     private void OnMasterVolumeChanged(object sender, Microsoft.UI.Xaml.Controls.Primitives.RangeBaseValueChangedEventArgs e)
     {
+        MasterVolumeText.Text = $"{e.NewValue:F0}%";
+
         if (_suppressMasterVolumePush || _masterDeviceId is null)
         {
             return;
@@ -87,41 +106,33 @@ public sealed partial class MixerPage : Page
         _deviceManager.SetMasterVolume(_masterDeviceId, (float)(e.NewValue / 100.0));
     }
 
-    /// <summary>Lightweight per-tick refresh: just peak levels for the meters, not a full session/icon re-resolve.</summary>
-    private void RefreshLiveLevels()
+    private void RefreshMeters()
     {
-        if (Sessions.Count == 0)
+        foreach (var (processId, strip) in _strips)
         {
-            return;
-        }
-
-        var liveSessions = _sessionManager.GetSessionsForDefaultDevice();
-
-        foreach (var session in liveSessions)
-        {
-            var row = Sessions.FirstOrDefault(r => r.ProcessId == session.ProcessId);
-            if (row is null)
+            if (_spectrumMonitor.TryGetBands(processId, _bandScratch))
             {
-                continue;
+                strip.SetLevels(_bandScratch);
             }
-
-            var target = session.PeakLevel * 100.0;
-            // Attack fast (jump straight to a louder reading), decay slower
-            // (ease down) so the meter reads as a level, not a strobe.
-            row.MeterPercent = target > row.MeterPercent ? target : row.MeterPercent * 0.7 + target * 0.3;
         }
     }
 
     private void UpdateStatusChips()
     {
-        BoostedCountText.Text = _boostCoordinator.BoostedCount == 1 ? "1 boosted" : $"{_boostCoordinator.BoostedCount} boosted";
-        WarningCountText.Text = _safetyMonitor.WarningCount == 1 ? "1 warning" : $"{_safetyMonitor.WarningCount} warnings";
+        var boosted = _boostCoordinator.BoostedCount;
+        var warnings = _safetyMonitor.WarningCount;
+
+        BoostedCountText.Text = boosted == 1 ? "1 boosted" : $"{boosted} boosted";
+        WarningCountText.Text = warnings == 1 ? "1 warning" : $"{warnings} warnings";
+        ExposureText.Text = $"{_safetyMonitor.TotalTimeAboveThreshold.TotalMinutes:F0}m loud";
     }
 
     private void RunSafetySample()
     {
-        var samples = Sessions.Select(row =>
-            ((row.ExecutablePath is { Length: > 0 } path ? path : $"pid:{row.ProcessId}"), row.VolumePercent));
+        var samples = _strips.Values
+            .Select(strip => strip.ViewModel)
+            .Where(vm => vm is not null)
+            .Select(vm => (AppKeyFor(vm!), vm!.VolumePercent));
 
         var warned = _safetyMonitor.Sample(samples, DateTimeOffset.UtcNow);
         UpdateStatusChips();
@@ -132,26 +143,39 @@ public sealed partial class MixerPage : Page
             return;
         }
 
-        var names = Sessions
-            .Where(row => warned.Contains(row.ExecutablePath is { Length: > 0 } path ? path : $"pid:{row.ProcessId}"))
-            .Select(row => row.DisplayName);
+        var names = _strips.Values
+            .Select(strip => strip.ViewModel)
+            .Where(vm => vm is not null && warned.Contains(AppKeyFor(vm)))
+            .Select(vm => vm!.DisplayName);
 
         WarningInfoBar.Message = $"{string.Join(", ", names)} — running near full volume for a while. This is a relative signal level, not a measurement of sound at your ears.";
         WarningInfoBar.IsOpen = true;
     }
 
+    private static string AppKeyFor(SessionRowViewModel? viewModel) =>
+        viewModel is null
+            ? string.Empty
+            : viewModel.ExecutablePath is { Length: > 0 } path ? path : $"pid:{viewModel.ProcessId}";
+
     public async Task RefreshSessionsAsync()
     {
-        var liveSessions = _sessionManager.GetSessionsForDefaultDevice();
+        var liveSessions = _sessionManager.GetSessionsForDefaultDevice()
+            .Where(s => !s.IsSystemSoundsSession)
+            .ToList();
 
-        // Full-set replace for now — a real diff-and-update pass belongs
-        // together with SessionGroupTracker wiring, not duplicated here.
-        _suppressVolumePush = true;
-        Sessions.Clear();
+        var livePids = liveSessions.Select(s => s.ProcessId).ToHashSet();
+
+        // Drop strips for apps that stopped playing.
+        foreach (var goneProcessId in _strips.Keys.Where(pid => !livePids.Contains(pid)).ToList())
+        {
+            StripsPanel.Children.Remove(_strips[goneProcessId]);
+            _strips.Remove(goneProcessId);
+            _spectrumMonitor.Stop(goneProcessId);
+        }
 
         foreach (var session in liveSessions)
         {
-            if (session.IsSystemSoundsSession)
+            if (_strips.ContainsKey(session.ProcessId))
             {
                 continue;
             }
@@ -168,7 +192,7 @@ public sealed partial class MixerPage : Page
                 _sessionManager.SetVolume(session.ProcessId, (float)(saved / 100.0));
             }
 
-            var row = new SessionRowViewModel
+            var viewModel = new SessionRowViewModel
             {
                 ProcessId = session.ProcessId,
                 DisplayName = string.IsNullOrWhiteSpace(session.DisplayName) ? displayName : session.DisplayName,
@@ -177,30 +201,36 @@ public sealed partial class MixerPage : Page
                 MaxVolumePercent = _boostCoordinator.CurrentCeilingPercent(DateTimeOffset.UtcNow),
                 IsMuted = session.IsMuted,
             };
-            row.PropertyChanged += OnRowPropertyChanged;
-            Sessions.Add(row);
+            viewModel.PropertyChanged += OnViewModelPropertyChanged;
+
+            var strip = new ChannelStrip();
+            strip.Bind(viewModel);
+
+            _strips[session.ProcessId] = strip;
+            StripsPanel.Children.Add(strip);
+            _spectrumMonitor.Watch(session.ProcessId);
 
             if (!string.IsNullOrEmpty(executablePath))
             {
-                _ = ResolveIconAsync(row, executablePath);
+                _ = ResolveIconAsync(viewModel, executablePath);
             }
         }
 
-        _suppressVolumePush = false;
+        EmptyStateText.Visibility = _strips.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 
-    private async Task ResolveIconAsync(SessionRowViewModel row, string executablePath)
+    private async Task ResolveIconAsync(SessionRowViewModel viewModel, string executablePath)
     {
         var icon = await _iconResolver.ResolveAsync(executablePath);
         if (icon is not null)
         {
-            row.Icon = icon;
+            viewModel.Icon = icon;
         }
     }
 
-    private void OnRowPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (_suppressVolumePush || sender is not SessionRowViewModel row)
+        if (sender is not SessionRowViewModel viewModel)
         {
             return;
         }
@@ -208,23 +238,23 @@ public sealed partial class MixerPage : Page
         switch (e.PropertyName)
         {
             case nameof(SessionRowViewModel.VolumePercent):
-                _ = ApplyVolumeChangeAsync(row);
+                _ = ApplyVolumeChangeAsync(viewModel);
                 break;
             case nameof(SessionRowViewModel.IsMuted):
-                _sessionManager.SetMute(row.ProcessId, row.IsMuted);
+                _sessionManager.SetMute(viewModel.ProcessId, viewModel.IsMuted);
                 break;
         }
     }
 
-    private async Task ApplyVolumeChangeAsync(SessionRowViewModel row)
+    private async Task ApplyVolumeChangeAsync(SessionRowViewModel viewModel)
     {
-        await _boostCoordinator.SetVolumePercentAsync(row.ProcessId, row.VolumePercent);
-        row.IsBoosted = _boostCoordinator.IsBoosted(row.ProcessId);
+        await _boostCoordinator.SetVolumePercentAsync(viewModel.ProcessId, viewModel.VolumePercent);
+        viewModel.IsBoosted = _boostCoordinator.IsBoosted(viewModel.ProcessId);
         UpdateStatusChips();
 
-        if (!string.IsNullOrEmpty(row.ExecutablePath))
+        if (!string.IsNullOrEmpty(viewModel.ExecutablePath))
         {
-            await _volumeStore.SetVolumeAsync(row.ExecutablePath, row.VolumePercent);
+            await _volumeStore.SetVolumeAsync(viewModel.ExecutablePath, viewModel.VolumePercent);
         }
     }
 

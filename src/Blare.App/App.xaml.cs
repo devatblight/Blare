@@ -1,4 +1,5 @@
 using BLight.Blare.App.Services;
+using BLight.Blare.Audio.Analysis;
 using BLight.Blare.Audio.Devices;
 using BLight.Blare.Audio.Sessions;
 using BLight.Blare.Core.Safety;
@@ -21,8 +22,11 @@ public partial class App : Application
         Services = BuildServiceProvider();
     }
 
-    protected override void OnLaunched(LaunchActivatedEventArgs args)
+    protected override async void OnLaunched(LaunchActivatedEventArgs args)
     {
+        // Theme resources must exist before any page that references them loads.
+        await Services.GetRequiredService<ThemeService>().LoadAsync();
+
         _mainWindow = Services.GetRequiredService<MainWindow>();
         _mainWindow.Activate();
 
@@ -51,9 +55,11 @@ public partial class App : Application
         services.AddSingleton<ConsentState>();
         services.AddSingleton<SafetyMonitor>();
         services.AddSingleton<BoostCoordinator>();
+        services.AddSingleton<SpectrumMonitor>();
         services.AddSingleton<TrayIconService>();
         services.AddSingleton<ISettingsStore>(new JsonFileSettingsStore(settingsDirectory));
         services.AddSingleton<SessionVolumeStore>();
+        services.AddSingleton<ThemeService>();
         services.AddTransient<MainWindow>();
 
         return services.BuildServiceProvider();
