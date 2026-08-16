@@ -1,0 +1,13 @@
+IMMDeviceEnumerator
+IMMDevice
+IMMDeviceCollection
+IMMNotificationClient
+MMDeviceEnumerator
+IAudioSessionManager2
+IAudioSessionEnumerator
+IAudioSessionControl2
+IAudioSessionNotification
+ISimpleAudioVolume
+IAudioMeterInformation
+IAudioEndpointVolume
+CoCreateInstance

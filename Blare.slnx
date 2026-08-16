@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Blare.App/Blare.App.csproj">
+      <Platform Project="x64" />
+    </Project>
+    <Project Path="src/Blare.Audio/Blare.Audio.csproj" />
+    <Project Path="src/Blare.Core/Blare.Core.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Blare.Core.Tests/Blare.Core.Tests.csproj" />
+  </Folder>
+</Solution>
