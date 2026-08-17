@@ -9,38 +9,32 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <!-- Edit-mode bar. Out of edit mode this is just the toggle. -->
-        <Grid Grid.Row="0" ColumnSpacing="8">
+        <!-- Page header. Matches the other pages so the sections read as one app
+             rather than three unrelated screens. -->
+        <Grid Grid.Row="0" ColumnSpacing="12">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
 
-            <StackPanel
-                x:Name="EditTools"
-                Grid.Column="0"
-                Orientation="Horizontal"
-                Spacing="8"
-                Visibility="Collapsed">
-                <DropDownButton x:Name="AddCardButton" Content="Add card">
-                    <DropDownButton.Flyout>
-                        <MenuFlyout x:Name="AddCardFlyout" />
-                    </DropDownButton.Flyout>
-                </DropDownButton>
-                <Button x:Name="ResetLayoutButton" Content="Reset layout" Click="OnResetLayoutClick" />
+            <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                <TextBlock Text="Mixer" FontSize="20" FontWeight="SemiBold" />
                 <TextBlock
-                    Text="Drag a card to move it, drag its corner to resize"
-                    VerticalAlignment="Center"
-                    FontSize="11.5"
-                    Opacity="0.55" />
+                    x:Name="HeaderSubtitle"
+                    Text="Nothing playing"
+                    FontSize="12"
+                    Opacity="0.6" />
             </StackPanel>
 
             <ToggleButton
                 x:Name="EditModeToggle"
                 Grid.Column="1"
+                VerticalAlignment="Center"
+                ToolTipService.ToolTip="Rearrange the dashboard"
                 Checked="OnEditModeChanged"
                 Unchecked="OnEditModeChanged">
                 <StackPanel Orientation="Horizontal" Spacing="7">
@@ -50,17 +44,54 @@
             </ToggleButton>
         </Grid>
 
+        <!-- Edit-mode bar, in a row of its own so it slides in under the header
+             instead of fighting it for space. -->
+        <StackPanel
+            x:Name="EditTools"
+            Grid.Row="1"
+            Orientation="Horizontal"
+            Spacing="8"
+            Opacity="0"
+            Visibility="Collapsed">
+            <DropDownButton x:Name="AddCardButton" Content="Add card">
+                <DropDownButton.Flyout>
+                    <MenuFlyout x:Name="AddCardFlyout" />
+                </DropDownButton.Flyout>
+            </DropDownButton>
+            <Button x:Name="ResetLayoutButton" Content="Reset layout" Click="OnResetLayoutClick" />
+            <TextBlock
+                Text="Drag a card to move it, drag its corner to resize"
+                VerticalAlignment="Center"
+                FontSize="11.5"
+                Opacity="0.55" />
+        </StackPanel>
+
         <InfoBar
             x:Name="WarningInfoBar"
-            Grid.Row="1"
+            Grid.Row="2"
             Severity="Warning"
             Title="Running loud"
             IsOpen="False"
-            CornerRadius="6" />
+            CornerRadius="6">
+            <!-- The bar takes a row of its own, so opening it pushes the dashboard
+                 down. Repositioning the neighbours makes that a slide rather than
+                 the desk jolting under the pointer. -->
+            <InfoBar.Transitions>
+                <TransitionCollection>
+                    <AddDeleteThemeTransition />
+                </TransitionCollection>
+            </InfoBar.Transitions>
+        </InfoBar>
 
         <!-- The dashboard: a 12x12 cell grid the user arranges. -->
-        <Grid x:Name="DashboardSurface" Grid.Row="2" SizeChanged="OnSurfaceSizeChanged">
-            <Canvas x:Name="GridGuides" IsHitTestVisible="False" Visibility="Collapsed" />
+        <Grid x:Name="DashboardSurface" Grid.Row="3" SizeChanged="OnSurfaceSizeChanged">
+            <Grid.Transitions>
+                <TransitionCollection>
+                    <RepositionThemeTransition />
+                </TransitionCollection>
+            </Grid.Transitions>
+
+            <Canvas x:Name="GridGuides" IsHitTestVisible="False" Opacity="0" Visibility="Collapsed" />
             <!-- Its own layer: the guides canvas is cleared on every redraw and
                  the card canvas is rebuilt whenever cards change. -->
             <Canvas x:Name="DropLayer" IsHitTestVisible="False" />

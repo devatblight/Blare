@@ -7,7 +7,7 @@ namespace Blight.Blare.App.ViewModels;
 public sealed class SessionRowViewModel : INotifyPropertyChanged
 {
     private double _volumePercent;
-    private double _maxVolumePercent = 150;
+    private double _maxVolumePercent = 100;
     private double _meterPercent;
     private bool _isMuted;
     private BitmapImage? _icon;
@@ -30,7 +30,7 @@ public sealed class SessionRowViewModel : INotifyPropertyChanged
         set => SetField(ref _volumePercent, value);
     }
 
-    /// <summary>Upper bound for the volume slider — 150 by default, 300 once the ceiling override consent is granted.</summary>
+    /// <summary>Upper bound for the volume slider. Windows caps a session at 100% and Blare no longer amplifies past it.</summary>
     public double MaxVolumePercent
     {
         get => _maxVolumePercent;

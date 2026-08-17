@@ -2,12 +2,13 @@ using Blight.Blare.App.ViewModels;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
+using Microsoft.UI.Xaml.Input;
 
 namespace Blight.Blare.App.Controls;
 
 /// <summary>
-/// One app's channel strip: icon, spectrum meter, vertical fader with a
-/// visible danger zone above 100%, numeric readout and mute.
+/// One app's channel strip: icon, spectrum meter, vertical fader, numeric
+/// readout, mute and focus.
 ///
 /// Wired to its view model by hand rather than by x:Bind because the strip
 /// is created per session at runtime and its fader has to push changes back
@@ -18,6 +19,11 @@ public sealed partial class ChannelStrip : UserControl
     // Segoe MDL2 Assets.
     private const string SpeakerGlyph = "";
     private const string MutedGlyph = "";
+
+    /// <summary>Barely-there lift on hover — enough to show the strip is live, not enough to strobe while the pointer crosses the desk.</summary>
+    private const double HoverOpacity = 0.06;
+
+    private const double MutedOpacity = 0.4;
 
     private SessionRowViewModel? _viewModel;
     private bool _suppressPush;
@@ -38,10 +44,14 @@ public sealed partial class ChannelStrip : UserControl
         FocusButton.IsChecked = isFocused;
         _suppressPush = false;
 
-        StripBorder.BorderBrush = isFocused
-            ? (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["BlareAccent"]
-            : (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["BlareStripBorder"];
+        Motion.FadeTo(FocusRing, isFocused ? 1 : 0, Motion.Normal);
     }
+
+    private void OnPointerEntered(object sender, PointerRoutedEventArgs e) =>
+        Motion.FadeTo(HoverOverlay, HoverOpacity);
+
+    private void OnPointerExited(object sender, PointerRoutedEventArgs e) =>
+        Motion.FadeTo(HoverOverlay, 0);
 
     private void OnFocusClicked(object sender, RoutedEventArgs e)
     {
@@ -74,11 +84,19 @@ public sealed partial class ChannelStrip : UserControl
         MuteButton.IsChecked = viewModel.IsMuted;
         MuteIcon.Glyph = viewModel.IsMuted ? MutedGlyph : SpeakerGlyph;
 
+        // Set outright on bind — a strip that fades in from muted on first paint
+        // looks like something changed when nothing did.
+        var muted = viewModel.IsMuted ? MutedOpacity : 1;
+        SignalArea.Opacity = muted;
+        VolumeText.Opacity = muted;
+
         UpdateVolumeText();
-        UpdateDangerZone();
     }
 
     public void SetLevels(ReadOnlySpan<double> levels) => Meter.SetLevels(levels);
+
+    /// <summary>Advances the meter with no new data so it falls away instead of freezing.</summary>
+    public void DecayLevels() => Meter.Decay();
 
     private void OnViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
@@ -94,7 +112,6 @@ public sealed partial class ChannelStrip : UserControl
                 break;
             case nameof(SessionRowViewModel.MaxVolumePercent):
                 VolumeSlider.Maximum = _viewModel.MaxVolumePercent;
-                UpdateDangerZone();
                 break;
             case nameof(SessionRowViewModel.VolumePercent):
                 _suppressPush = true;
@@ -107,6 +124,7 @@ public sealed partial class ChannelStrip : UserControl
                 MuteButton.IsChecked = _viewModel.IsMuted;
                 MuteIcon.Glyph = _viewModel.IsMuted ? MutedGlyph : SpeakerGlyph;
                 _suppressPush = false;
+                UpdateMutedLook();
                 break;
         }
     }
@@ -131,6 +149,15 @@ public sealed partial class ChannelStrip : UserControl
 
         _viewModel.IsMuted = MuteButton.IsChecked == true;
         MuteIcon.Glyph = _viewModel.IsMuted ? MutedGlyph : SpeakerGlyph;
+        UpdateMutedLook();
+    }
+
+    private void UpdateMutedLook()
+    {
+        var target = _viewModel?.IsMuted == true ? MutedOpacity : 1;
+
+        Motion.FadeTo(SignalArea, target, Motion.Normal);
+        Motion.FadeTo(VolumeText, target, Motion.Normal);
     }
 
     private void UpdateVolumeText()
@@ -141,26 +168,5 @@ public sealed partial class ChannelStrip : UserControl
         }
 
         VolumeText.Text = $"{_viewModel.VolumePercent:F0}%";
-        VolumeText.Foreground = _viewModel.VolumePercent > 100
-            ? (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["BlareMeterHigh"]
-            : (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["TextFillColorPrimaryBrush"];
-    }
-
-
-    private void UpdateDangerZone()
-    {
-        if (_viewModel is null)
-        {
-            return;
-        }
-
-        // The danger strip covers the top slice of fader travel — the part
-        // that sits above 100% — so how far "too far" is, is visible before
-        // you drag rather than only after.
-        var max = Math.Max(1, _viewModel.MaxVolumePercent);
-        var dangerFraction = Math.Clamp((max - 100) / max, 0, 1);
-
-        DangerZone.Visibility = dangerFraction > 0 ? Visibility.Visible : Visibility.Collapsed;
-        DangerZone.Height = dangerFraction * 150;
     }
 }

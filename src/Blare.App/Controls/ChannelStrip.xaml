@@ -4,118 +4,129 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="using:Blight.Blare.App.Controls"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006">
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    PointerEntered="OnPointerEntered"
+    PointerExited="OnPointerExited">
 
-    <Border
-        x:Name="StripBorder"
-        Width="104"
-        Padding="10,12"
-        CornerRadius="{ThemeResource BlareStripCornerRadius}"
-        Background="{ThemeResource BlareStripBackground}"
-        BorderBrush="{ThemeResource BlareStripBorder}"
-        BorderThickness="1">
+    <Grid Width="104">
+        <Border
+            x:Name="StripBorder"
+            Padding="10,12"
+            CornerRadius="{ThemeResource BlareStripCornerRadius}"
+            Background="{ThemeResource BlareStripBackground}"
+            BorderBrush="{ThemeResource BlareStripBorder}"
+            BorderThickness="1">
 
-        <Grid RowSpacing="8">
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="*" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-            </Grid.RowDefinitions>
+            <Grid RowSpacing="8">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
 
-            <!-- App identity -->
-            <StackPanel Grid.Row="0" Spacing="6" HorizontalAlignment="Center">
-                <Border
-                    Width="36"
-                    Height="36"
-                    CornerRadius="8"
-                    Background="{ThemeResource BlarePanelBackground}">
-                    <Image x:Name="AppIcon" Width="22" Height="22" />
-                </Border>
-                <TextBlock
-                    x:Name="AppNameText"
-                    FontSize="11"
-                    FontWeight="SemiBold"
-                    HorizontalAlignment="Center"
-                    TextAlignment="Center"
-                    TextTrimming="CharacterEllipsis"
-                    MaxWidth="84" />
-            </StackPanel>
-
-            <!-- Meter + fader side by side, like a real channel strip -->
-            <Grid Grid.Row="2" ColumnSpacing="8" MinHeight="150">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
-
-                <Border
-                    Grid.Column="0"
-                    CornerRadius="3"
-                    Padding="3"
-                    Background="{ThemeResource BlarePanelBackground}">
-                    <local:SpectrumMeter x:Name="Meter" BarCount="8" />
-                </Border>
-
-                <Grid Grid.Column="1" Width="36">
-                    <!-- Danger zone: the slice of fader travel that sits above 100% -->
+                <!-- App identity -->
+                <StackPanel Grid.Row="0" Spacing="6" HorizontalAlignment="Center">
                     <Border
-                        x:Name="DangerZone"
-                        VerticalAlignment="Top"
+                        Width="36"
+                        Height="36"
+                        CornerRadius="8"
+                        Background="{ThemeResource BlarePanelBackground}">
+                        <Image x:Name="AppIcon" Width="22" Height="22" />
+                    </Border>
+                    <TextBlock
+                        x:Name="AppNameText"
+                        FontSize="11"
+                        FontWeight="SemiBold"
                         HorizontalAlignment="Center"
-                        Width="4"
-                        CornerRadius="2"
-                        Background="{ThemeResource BlareMeterHigh}"
-                        Opacity="0.35" />
+                        TextAlignment="Center"
+                        TextTrimming="CharacterEllipsis"
+                        MaxWidth="84" />
+                </StackPanel>
+
+                <!-- Meter + fader side by side, like a real channel strip. Dims as a
+                     whole when muted, so a silenced app reads as off at a glance. -->
+                <Grid x:Name="SignalArea" Grid.Row="1" ColumnSpacing="8" MinHeight="150">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+
+                    <Border
+                        Grid.Column="0"
+                        CornerRadius="3"
+                        Padding="3"
+                        Background="{ThemeResource BlarePanelBackground}">
+                        <local:SpectrumMeter x:Name="Meter" BarCount="8" />
+                    </Border>
 
                     <Slider
                         x:Name="VolumeSlider"
+                        Grid.Column="1"
+                        Width="36"
                         Orientation="Vertical"
                         Minimum="0"
-                        Maximum="150"
+                        Maximum="100"
+                        StepFrequency="1"
                         HorizontalAlignment="Center"
                         VerticalAlignment="Stretch"
                         ValueChanged="OnVolumeSliderChanged" />
                 </Grid>
+
+                <!-- Numeric readout -->
+                <TextBlock
+                    x:Name="VolumeText"
+                    Grid.Row="2"
+                    Text="100%"
+                    FontSize="12"
+                    FontFamily="Consolas"
+                    HorizontalAlignment="Center" />
+
+                <Grid Grid.Row="3" ColumnSpacing="6">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+
+                    <ToggleButton
+                        x:Name="MuteButton"
+                        Grid.Column="0"
+                        HorizontalAlignment="Stretch"
+                        Padding="0,4"
+                        ToolTipService.ToolTip="Mute"
+                        Checked="OnMuteToggled"
+                        Unchecked="OnMuteToggled">
+                        <FontIcon x:Name="MuteIcon" Glyph="&#xE767;" FontSize="14" />
+                    </ToggleButton>
+
+                    <ToggleButton
+                        x:Name="FocusButton"
+                        Grid.Column="1"
+                        HorizontalAlignment="Stretch"
+                        Padding="0,4"
+                        ToolTipService.ToolTip="Focus this app and duck everything else"
+                        Click="OnFocusClicked">
+                        <FontIcon Glyph="&#xE71E;" FontSize="14" />
+                    </ToggleButton>
+                </Grid>
             </Grid>
+        </Border>
 
-            <!-- Numeric readout -->
-            <TextBlock
-                x:Name="VolumeText"
-                Grid.Row="3"
-                Text="100%"
-                FontSize="12"
-                FontFamily="Consolas"
-                HorizontalAlignment="Center" />
+        <!-- Overlay layers: hover lift and the focus ring. Kept separate from the
+             chrome because a brush cannot be animated, but an opacity can. -->
+        <Border
+            x:Name="HoverOverlay"
+            CornerRadius="{ThemeResource BlareStripCornerRadius}"
+            Background="#FFFFFF"
+            Opacity="0"
+            IsHitTestVisible="False" />
 
-            <Grid Grid.Row="4" ColumnSpacing="6">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="*" />
-                </Grid.ColumnDefinitions>
-
-                <ToggleButton
-                    x:Name="MuteButton"
-                    Grid.Column="0"
-                    HorizontalAlignment="Stretch"
-                    Padding="0,4"
-                    ToolTipService.ToolTip="Mute"
-                    Checked="OnMuteToggled"
-                    Unchecked="OnMuteToggled">
-                    <FontIcon x:Name="MuteIcon" Glyph="&#xE767;" FontSize="14" />
-                </ToggleButton>
-
-                <ToggleButton
-                    x:Name="FocusButton"
-                    Grid.Column="1"
-                    HorizontalAlignment="Stretch"
-                    Padding="0,4"
-                    ToolTipService.ToolTip="Focus this app and duck everything else"
-                    Click="OnFocusClicked">
-                    <FontIcon Glyph="&#xE71E;" FontSize="14" />
-                </ToggleButton>
-            </Grid>
-        </Grid>
-    </Border>
+        <Border
+            x:Name="FocusRing"
+            CornerRadius="{ThemeResource BlareStripCornerRadius}"
+            BorderBrush="{ThemeResource BlareAccent}"
+            BorderThickness="1.5"
+            Opacity="0"
+            IsHitTestVisible="False" />
+    </Grid>
 </UserControl>

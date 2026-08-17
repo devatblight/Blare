@@ -22,6 +22,7 @@ public sealed class DashboardCardHost : ContentControl
     private readonly Border _editOverlay;
     private readonly Rectangle _resizeGrip;
     private readonly TranslateTransform _dragOffset = new();
+    private readonly ScaleTransform _liftScale = new() { ScaleX = 1, ScaleY = 1 };
 
     private double _cellWidth = 1;
     private double _cellHeight = 1;
@@ -47,6 +48,8 @@ public sealed class DashboardCardHost : ContentControl
             Child = BuildBody(title, content),
         };
 
+        // The edit affordances start transparent as well as collapsed: they are
+        // faded in and out, and an opacity of 1 would make the first fade a no-op.
         _editOverlay = new Border
         {
             CornerRadius = new CornerRadius(8),
@@ -54,12 +57,14 @@ public sealed class DashboardCardHost : ContentControl
             BorderBrush = Resource("BlareAccent"),
             Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
             Visibility = Visibility.Collapsed,
+            Opacity = 0,
+            IsHitTestVisible = false,
         };
 
         _resizeGrip = new Rectangle
         {
-            Width = 16,
-            Height = 16,
+            Width = 14,
+            Height = 14,
             RadiusX = 3,
             RadiusY = 3,
             Fill = Resource("BlareAccent"),
@@ -67,8 +72,11 @@ public sealed class DashboardCardHost : ContentControl
             VerticalAlignment = VerticalAlignment.Bottom,
             Margin = new Thickness(0, 0, 3, 3),
             Visibility = Visibility.Collapsed,
+            Opacity = 0,
             ManipulationMode = ManipulationModes.TranslateX | ManipulationModes.TranslateY,
         };
+
+        ToolTipService.SetToolTip(_resizeGrip, "Drag to resize");
 
         RemoveButton = new Button
         {
@@ -78,7 +86,10 @@ public sealed class DashboardCardHost : ContentControl
             VerticalAlignment = VerticalAlignment.Top,
             Margin = new Thickness(0, 4, 4, 0),
             Visibility = Visibility.Collapsed,
+            Opacity = 0,
         };
+
+        ToolTipService.SetToolTip(RemoveButton, "Remove this card");
 
         var root = new Grid();
         root.Children.Add(_chrome);
@@ -90,6 +101,11 @@ public sealed class DashboardCardHost : ContentControl
         HorizontalContentAlignment = HorizontalAlignment.Stretch;
         VerticalContentAlignment = VerticalAlignment.Stretch;
         RenderTransform = _dragOffset;
+
+        // Scaling the chrome rather than the host keeps the drag translation and
+        // the pick-up lift on separate transforms, so neither clobbers the other.
+        _chrome.RenderTransform = _liftScale;
+        _chrome.RenderTransformOrigin = new Windows.Foundation.Point(0.5, 0.5);
 
         ManipulationMode = ManipulationModes.TranslateX | ManipulationModes.TranslateY;
         ManipulationStarted += OnDragStarted;
@@ -114,9 +130,23 @@ public sealed class DashboardCardHost : ContentControl
     /// <summary>Adopts the model's geometry after it has clamped, displaced or refused a change.</summary>
     public void ApplyCard(DashboardCard card)
     {
+        // The card is about to jump to its new cell in layout. Pre-load the
+        // inverse of that jump onto the drag transform and let it glide back to
+        // zero, so the move reads as travel rather than a teleport. This covers
+        // three cases with one mechanism: the dragged card settling the last few
+        // pixels into its cell, a refused drop springing back to where it came
+        // from, and a displaced card sliding out of the way.
+        var jumpX = (card.Column - Card.Column) * _cellWidth;
+        var jumpY = (card.Row - Card.Row) * _cellHeight;
+
         Card = card;
-        ClearDragOffset();
+        Opacity = 1;
+
+        Motion.SettleFrom(_dragOffset, _dragOffset.X - jumpX, _dragOffset.Y - jumpY);
     }
+
+    /// <summary>Fades the card in on its way to its slot, staggered behind the ones before it.</summary>
+    public void PlayEntrance(int index) => Motion.EnterStaggered(this, _dragOffset, index);
 
     public void SetCellSize(double width, double height)
     {
@@ -128,10 +158,9 @@ public sealed class DashboardCardHost : ContentControl
     {
         _editing = editing;
 
-        var visibility = editing ? Visibility.Visible : Visibility.Collapsed;
-        _editOverlay.Visibility = visibility;
-        _resizeGrip.Visibility = visibility;
-        RemoveButton.Visibility = visibility;
+        Motion.ToggleLayer(_editOverlay, editing, Motion.Normal);
+        Motion.ToggleLayer(_resizeGrip, editing, Motion.Normal);
+        Motion.ToggleLayer(RemoveButton, editing, Motion.Normal);
 
         // The card's own controls stay live outside edit mode; inside it they
         // must not swallow the drag.
@@ -152,8 +181,10 @@ public sealed class DashboardCardHost : ContentControl
             return;
         }
 
-        // Lift it visually so it reads as picked up.
-        Opacity = 0.75;
+        // Lift it visually so it reads as picked up rather than as the pointer
+        // happening to be over it.
+        Motion.FadeTo(this, 0.9);
+        Motion.ScaleTo(_liftScale, 1.03);
         Canvas.SetZIndex(this, 10);
     }
 
@@ -194,6 +225,7 @@ public sealed class DashboardCardHost : ContentControl
         }
 
         Canvas.SetZIndex(this, 0);
+        Motion.ScaleTo(_liftScale, 1);
 
         var target = Card with
         {
@@ -203,8 +235,9 @@ public sealed class DashboardCardHost : ContentControl
 
         _pendingColumns = 0;
         _pendingRows = 0;
-        ClearDragOffset();
 
+        // The drag offset is deliberately left in place: ApplyCard turns it into
+        // the settle animation once the model has had its say.
         Committed?.Invoke(this, target);
     }
 

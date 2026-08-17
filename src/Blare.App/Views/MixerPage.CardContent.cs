@@ -5,6 +5,7 @@ using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Animation;
 using Microsoft.UI.Xaml.Shapes;
 
 namespace Blight.Blare.App.Views;
@@ -49,16 +50,18 @@ public sealed partial class MixerPage
             Orientation = Orientation.Horizontal,
             Spacing = 10,
             HorizontalAlignment = HorizontalAlignment.Center,
+
+            // Strips arrive and leave as apps start and stop playing. The stock
+            // transitions slide the neighbours along instead of having the row
+            // jump, which is the whole reason a session appearing doesn't startle.
+            ChildrenTransitions =
+            [
+                new AddDeleteThemeTransition(),
+                new RepositionThemeTransition(),
+            ],
         };
 
-        _emptyState = new TextBlock
-        {
-            Text = "Nothing is playing audio right now.",
-            Opacity = 0.5,
-            HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Center,
-            Visibility = Visibility.Collapsed,
-        };
+        _emptyState = BuildEmptyState();
 
         var scroller = new ScrollViewer
         {
@@ -73,6 +76,49 @@ public sealed partial class MixerPage
         host.Children.Add(scroller);
         host.Children.Add(_emptyState);
         return host;
+    }
+
+    /// <summary>
+    /// Shown when no app is playing. A bare line of grey text reads like the
+    /// panel failed to load; an icon and a second line make it clear this is a
+    /// normal, quiet state rather than something being broken.
+    /// </summary>
+    private static UIElement BuildEmptyState()
+    {
+        var stack = new StackPanel
+        {
+            Spacing = 6,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            Visibility = Visibility.Collapsed,
+            Opacity = 0,
+        };
+
+        stack.Children.Add(new FontIcon
+        {
+            Glyph = char.ConvertFromUtf32(0xE767),
+            FontSize = 22,
+            Opacity = 0.35,
+        });
+
+        stack.Children.Add(new TextBlock
+        {
+            Text = "Nothing is playing",
+            FontSize = 13,
+            FontWeight = FontWeights.SemiBold,
+            Opacity = 0.65,
+            HorizontalAlignment = HorizontalAlignment.Center,
+        });
+
+        stack.Children.Add(new TextBlock
+        {
+            Text = "Apps appear here as soon as they make a sound.",
+            FontSize = 11.5,
+            Opacity = 0.45,
+            HorizontalAlignment = HorizontalAlignment.Center,
+        });
+
+        return stack;
     }
 
     private UIElement BuildMasterCard()

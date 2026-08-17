@@ -52,7 +52,7 @@ public sealed partial class MixerPage : Page
     // Built at runtime by the card content, so any of these may be absent when
     // the user has removed that card.
     private StackPanel? _stripsPanel;
-    private TextBlock? _emptyState;
+    private UIElement? _emptyState;
     private Slider? _masterVolumeSlider;
     private TextBlock? _masterVolumeText;
     private TextBlock? _masterDeviceNameText;
@@ -87,7 +87,9 @@ public sealed partial class MixerPage : Page
         BuildDropPreview();
 
         _safetyTimer = CreateTimer(TimeSpan.FromSeconds(5), RunSafetySample);
-        _meterTimer = CreateTimer(TimeSpan.FromMilliseconds(50), RefreshMeters);
+        // 30fps. The meter now only rewrites segments that actually changed, so
+        // the extra frames cost little and buy visibly smoother ballistics.
+        _meterTimer = CreateTimer(TimeSpan.FromMilliseconds(33), RefreshMeters);
         _sessionTimer = CreateTimer(TimeSpan.FromSeconds(2), () => CrashLog.FireAndForget(RefreshSessionsAsync()));
 
         Unloaded += (_, _) =>
@@ -131,12 +133,12 @@ public sealed partial class MixerPage : Page
         _dropPreview.StrokeDashArray = [3, 3];
         _dropPreview.Visibility = Visibility.Collapsed;
         _dropPreview.IsHitTestVisible = false;
+        _dropPreview.Opacity = 0;
 
         if (Application.Current.Resources.TryGetValue("BlareAccent", out var accent) && accent is Brush brush)
         {
             _dropPreview.Stroke = brush;
             _dropPreview.Fill = brush;
-            _dropPreview.Opacity = 0.18;
         }
 
         DropLayer.Children.Add(_dropPreview);
@@ -165,6 +167,8 @@ public sealed partial class MixerPage : Page
         _nowPlayingText = null;
         _strips.Clear();
 
+        var index = 0;
+
         foreach (var card in _dashboardStore.Layout.Cards)
         {
             var host = new DashboardCardHost(card, TitleFor(card.Kind), BuildCardContent(card.Kind));
@@ -172,6 +176,7 @@ public sealed partial class MixerPage : Page
             host.Committed += OnCardCommitted;
             host.RemoveButton.Click += (_, _) => RemoveCard(card.Id);
             host.SetEditing(EditModeToggle.IsChecked == true);
+            host.PlayEntrance(index++);
 
             _hosts.Add(host);
             CardCanvas.Children.Add(host);
@@ -222,12 +227,16 @@ public sealed partial class MixerPage : Page
         _dropPreview.Height = Math.Max(0, card.RowSpan * cellHeight - CardGap);
         Canvas.SetLeft(_dropPreview, Math.Clamp(card.Column, 0, DashboardLayout.Columns - card.ColumnSpan) * cellWidth);
         Canvas.SetTop(_dropPreview, Math.Clamp(card.Row, 0, DashboardLayout.Rows - card.RowSpan) * cellHeight);
-        _dropPreview.Visibility = Visibility.Visible;
+
+        if (_dropPreview.Visibility != Visibility.Visible)
+        {
+            Motion.ToggleLayer(_dropPreview, true, Motion.Fast, shownOpacity: 0.18);
+        }
     }
 
     private void OnCardCommitted(object? sender, Blight.Blare.Core.Layout.DashboardCard card)
     {
-        _dropPreview.Visibility = Visibility.Collapsed;
+        Motion.ToggleLayer(_dropPreview, false);
 
         // Resize first so displacement is computed against the final footprint.
         _dashboardStore.Layout.Resize(card.Id, card.ColumnSpan, card.RowSpan);
@@ -293,8 +302,8 @@ public sealed partial class MixerPage : Page
     {
         var editing = EditModeToggle.IsChecked == true;
 
-        EditTools.Visibility = editing ? Visibility.Visible : Visibility.Collapsed;
-        GridGuides.Visibility = editing ? Visibility.Visible : Visibility.Collapsed;
+        Motion.ToggleLayer(EditTools, editing, Motion.Normal);
+        Motion.ToggleLayer(GridGuides, editing, Motion.Normal, shownOpacity: 0.9);
 
         foreach (var host in _hosts)
         {
@@ -307,12 +316,15 @@ public sealed partial class MixerPage : Page
     /// <summary>Faint cell lines while editing, so the snap grid is visible rather than guessed at.</summary>
     private void DrawGuides()
     {
-        GridGuides.Children.Clear();
-
+        // Leaving edit mode fades the guide layer out. Clearing it here would
+        // delete the lines mid-fade and turn that into a blink, so the stale
+        // lines are left in the hidden canvas and cleared on the way back in.
         if (EditModeToggle.IsChecked != true)
         {
             return;
         }
+
+        GridGuides.Children.Clear();
 
         var (cellWidth, cellHeight) = CellSize();
         var stroke = Application.Current.Resources.TryGetValue("BlareStripBorder", out var value)
@@ -409,7 +421,12 @@ public sealed partial class MixerPage : Page
                 && _spectrumMonitor.TryGetMergedBands(processes, _bandScratch))
             {
                 strip.SetLevels(_bandScratch);
+                continue;
             }
+
+            // No capture for this app this frame — let its meter fall away rather
+            // than leaving it frozen at whatever it last showed.
+            strip.DecayLevels();
         }
     }
 
@@ -629,8 +646,10 @@ public sealed partial class MixerPage : Page
 
         if (_emptyState is not null)
         {
-            _emptyState.Visibility = _strips.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+            Motion.ToggleLayer(_emptyState, _strips.Count == 0, Motion.Normal);
         }
+
+        UpdateHeader();
     }
 
     private static string GroupKeyFor(string executablePath, uint processId) =>
@@ -796,6 +815,28 @@ public sealed partial class MixerPage : Page
         {
             strip.SetFocused(_focusedAppKey == appKey);
         }
+
+        UpdateHeader();
+    }
+
+    /// <summary>Keeps the page subtitle saying what the desk is actually doing right now.</summary>
+    private void UpdateHeader()
+    {
+        var summary = _strips.Count switch
+        {
+            0 => "Nothing playing",
+            1 => "1 app playing",
+            var count => $"{count} apps playing",
+        };
+
+        if (_focusedAppKey is not null
+            && _strips.TryGetValue(_focusedAppKey, out var focused)
+            && focused.ViewModel is { } viewModel)
+        {
+            summary += $" · focused on {viewModel.DisplayName}";
+        }
+
+        HeaderSubtitle.Text = summary;
     }
 
     private static (string DisplayName, string ExecutablePath) ResolveProcessInfo(AudioSessionInfo session)

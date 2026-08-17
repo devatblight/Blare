@@ -11,14 +11,34 @@ namespace Blight.Blare.App.Controls;
 /// rather than a progress bar. Segment colour ramps green → amber → red up
 /// the column, so a loud app is obvious at a glance without reading numbers.
 ///
-/// Rebuilds only segment opacity per frame (not the visual tree), so this
-/// stays cheap enough to run at animation rate for several apps at once.
+/// Two things make it read like a real meter rather than flickering noise:
+/// levels rise instantly but fall gradually, and each bar keeps a peak marker
+/// that hangs at the loudest recent value and then drops. Raw FFT output
+/// jitters far too fast for an eye to follow without both.
+///
+/// Only segments whose state actually changed are touched each frame, so this
+/// stays cheap enough to run for several apps at animation rate.
 /// </summary>
 public sealed class SpectrumMeter : UserControl
 {
     private const int SegmentsPerBar = 14;
 
+    /// <summary>Fraction of the remaining distance a falling bar covers per frame.</summary>
+    private const double Release = 0.28;
+
+    /// <summary>How far the peak marker slides per frame once it starts falling.</summary>
+    private const double PeakFall = 0.012;
+
+    /// <summary>Frames a peak marker hangs at a new high before it begins to fall.</summary>
+    private const int PeakHoldFrames = 14;
+
     private Rectangle[,]? _segments;
+    private Brush[]? _segmentBrushes;
+    private double[]? _levels;
+    private double[]? _peaks;
+    private int[]? _peakHold;
+    private int[]? _drawnLit;
+    private int[]? _drawnPeak;
     private int _barCount;
 
     public SpectrumMeter()
@@ -41,12 +61,7 @@ public sealed class SpectrumMeter : UserControl
     /// <summary>Pushes one frame of band levels (each 0..1). Length may differ from <see cref="BarCount"/>; extra values are ignored.</summary>
     public void SetLevels(ReadOnlySpan<double> levels)
     {
-        if (_segments is null)
-        {
-            EnsureBuilt(BarCount);
-        }
-
-        if (_segments is null)
+        if (!TryPrepare())
         {
             return;
         }
@@ -55,21 +70,110 @@ public sealed class SpectrumMeter : UserControl
 
         for (var bar = 0; bar < bars; bar++)
         {
-            var lit = (int)Math.Round(Math.Clamp(levels[bar], 0, 1) * SegmentsPerBar);
+            Advance(bar, Math.Clamp(levels[bar], 0, 1));
+        }
+
+        Draw();
+    }
+
+    /// <summary>
+    /// Advances one frame with no new data. Without this a meter freezes at its
+    /// last value the moment an app stops feeding it, which looks like audio is
+    /// still playing.
+    /// </summary>
+    public void Decay()
+    {
+        if (!TryPrepare())
+        {
+            return;
+        }
+
+        for (var bar = 0; bar < _barCount; bar++)
+        {
+            Advance(bar, 0);
+        }
+
+        Draw();
+    }
+
+    private void Advance(int bar, double target)
+    {
+        var levels = _levels!;
+        var peaks = _peaks!;
+        var hold = _peakHold!;
+
+        // Attack is instant, release is gradual — the standard meter ballistics.
+        // A level that fell as fast as it rose reads as flicker, not loudness.
+        levels[bar] = target >= levels[bar]
+            ? target
+            : levels[bar] + ((target - levels[bar]) * Release);
+
+        if (levels[bar] >= peaks[bar])
+        {
+            peaks[bar] = levels[bar];
+            hold[bar] = PeakHoldFrames;
+            return;
+        }
+
+        if (hold[bar] > 0)
+        {
+            hold[bar]--;
+            return;
+        }
+
+        peaks[bar] = Math.Max(levels[bar], peaks[bar] - PeakFall);
+    }
+
+    private void Draw()
+    {
+        var segments = _segments!;
+        var levels = _levels!;
+        var peaks = _peaks!;
+        var drawnLit = _drawnLit!;
+        var drawnPeak = _drawnPeak!;
+
+        for (var bar = 0; bar < _barCount; bar++)
+        {
+            var lit = (int)Math.Round(levels[bar] * SegmentsPerBar);
+            var peak = peaks[bar] <= 0.001 ? -1 : Math.Clamp((int)(peaks[bar] * SegmentsPerBar), 0, SegmentsPerBar - 1);
+
+            if (lit == drawnLit[bar] && peak == drawnPeak[bar])
+            {
+                continue;
+            }
 
             for (var segment = 0; segment < SegmentsPerBar; segment++)
             {
-                // Segment 0 is the bottom of the bar. Unlit segments switch to a
-                // neutral fill rather than a faded version of their lit colour —
-                // otherwise an idle app shows a distracting ghost of the full
-                // green/amber/red ladder.
-                var rectangle = _segments[bar, segment];
-                var isLit = segment < lit;
+                var wasLit = segment < drawnLit[bar] || segment == drawnPeak[bar];
+                var isLit = segment < lit || segment == peak;
 
-                rectangle.Fill = isLit ? BrushForSegment(segment) : UnlitBrush;
-                rectangle.Opacity = isLit ? 1.0 : 0.35;
+                if (wasLit == isLit)
+                {
+                    continue;
+                }
+
+                var rectangle = segments[bar, segment];
+
+                // Unlit segments switch to a neutral fill rather than a faded
+                // version of their lit colour — otherwise an idle app shows a
+                // distracting ghost of the full green/amber/red ladder.
+                rectangle.Fill = isLit ? _segmentBrushes![segment] : UnlitBrush;
+                rectangle.Opacity = isLit ? 1.0 : 0.3;
             }
+
+            drawnLit[bar] = lit;
+            drawnPeak[bar] = peak;
         }
+    }
+
+    private bool TryPrepare()
+    {
+        if (_segments is null)
+        {
+            EnsureBuilt(BarCount);
+        }
+
+        return _segments is not null;
     }
 
     private void EnsureBuilt(int barCount)
@@ -88,6 +192,23 @@ public sealed class SpectrumMeter : UserControl
         }
 
         _segments = new Rectangle[barCount, SegmentsPerBar];
+        _levels = new double[barCount];
+        _peaks = new double[barCount];
+        _peakHold = new int[barCount];
+
+        // -1 rather than 0: 0 is a real state, and starting there would skip the
+        // first draw of a bar that is genuinely silent.
+        _drawnLit = new int[barCount];
+        _drawnPeak = new int[barCount];
+        Array.Fill(_drawnLit, -1);
+        Array.Fill(_drawnPeak, -1);
+
+        // Resolved once per build rather than per segment per frame.
+        _segmentBrushes = new Brush[SegmentsPerBar];
+        for (var segment = 0; segment < SegmentsPerBar; segment++)
+        {
+            _segmentBrushes[segment] = BrushForSegment(segment);
+        }
 
         for (var bar = 0; bar < barCount; bar++)
         {
@@ -104,7 +225,7 @@ public sealed class SpectrumMeter : UserControl
                     RadiusX = 1,
                     RadiusY = 1,
                     Fill = UnlitBrush,
-                    Opacity = 0.35,
+                    Opacity = 0.3,
                 };
 
                 // Row 0 is the top of a Grid, but segment 0 is the bottom of the bar.
