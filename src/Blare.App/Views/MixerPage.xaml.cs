@@ -62,7 +62,7 @@ public sealed partial class MixerPage : Page
     // Built at runtime by the card content, so any of these may be absent when
     // the user has removed that card.
     private StackPanel? _stripsPanel;
-    private UIElement? _emptyState;
+    private FrameworkElement? _emptyState;
     private Slider? _masterVolumeSlider;
     private TextBlock? _masterVolumeText;
     private TextBlock? _masterDeviceNameText;
@@ -77,6 +77,8 @@ public sealed partial class MixerPage : Page
     private TextBlock? _exposureSummary;
     private BudgetRing? _budgetRing;
     private TextBlock? _budgetCaption;
+    private TextBox? _stripFilter;
+    private TextBlock? _hearingDetail;
     private StackPanel? _sleepButtons;
     private TextBlock? _sleepStatus;
     private Button? _sleepCancel;
@@ -201,6 +203,8 @@ public sealed partial class MixerPage : Page
         _sleepButtons = null;
         _sleepStatus = null;
         _sleepCancel = null;
+        _stripFilter = null;
+        _hearingDetail = null;
         _masterVolumeSlider = null;
         _warningCountText = null;
         _nowPlayingText = null;
@@ -338,20 +342,19 @@ public sealed partial class MixerPage : Page
             return;
         }
 
-        var slot = _dashboardStore.Layout.FindFreeSlot(4, 3);
+        // Shrinks the card and repacks the desk before giving up, so a grid with
+        // room scattered across it still takes another card.
+        var placed = _dashboardStore.Layout.TryAdd(Guid.NewGuid().ToString("n")[..8], kind, 4, 4);
 
-        if (slot is null)
+        if (placed is null)
         {
-            App.Services.GetRequiredService<FlyoutService>().Show(
+            _flyout.Show(
                 "No room for another card",
-                "Move or shrink something first.",
+                "The desk is full even after tidying it up. Remove something first.",
                 FlyoutTone.Caution,
                 TimeSpan.FromSeconds(4));
             return;
         }
-
-        _dashboardStore.Layout.Add(new Blight.Blare.Core.Layout.DashboardCard(
-            Guid.NewGuid().ToString("n")[..8], kind, slot.Value.Column, slot.Value.Row, 4, 3));
 
         CrashLog.FireAndForget(_dashboardStore.SaveAsync());
         RebuildDashboard();
@@ -360,6 +363,13 @@ public sealed partial class MixerPage : Page
     private void RemoveCard(string id)
     {
         _dashboardStore.Layout.Remove(id);
+        CrashLog.FireAndForget(_dashboardStore.SaveAsync());
+        RebuildDashboard();
+    }
+
+    private void OnTidyLayoutClick(object sender, RoutedEventArgs e)
+    {
+        _dashboardStore.Layout.Compact();
         CrashLog.FireAndForget(_dashboardStore.SaveAsync());
         RebuildDashboard();
     }
@@ -480,6 +490,20 @@ public sealed partial class MixerPage : Page
 
         _soloedAppKey = appKey;
         UpdateHeader();
+    }
+
+    /// <summary>Hides strips whose app name doesn't match what's typed in the filter.</summary>
+    private void ApplyStripFilter()
+    {
+        var term = _stripFilter?.Text?.Trim() ?? string.Empty;
+
+        foreach (var strip in _strips.Values)
+        {
+            var matches = term.Length == 0
+                || (strip.ViewModel?.DisplayName.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false);
+
+            strip.Visibility = matches ? Visibility.Visible : Visibility.Collapsed;
+        }
     }
 
     // ---- sleep timer ---------------------------------------------------------
@@ -869,6 +893,17 @@ public sealed partial class MixerPage : Page
             _exposureDot.Fill = BrushFor(
                 minutesLoud >= 60 ? "BlareMeterMid" : minutesLoud > 0 ? "BlareMeterLow" : "BlareMeterUnlit");
         }
+
+        if (_hearingDetail is not null)
+        {
+            var caps = _limits.Limits.Caps.Count;
+            var quiet = _limits.Limits.QuietHours.Enabled ? "Quiet hours on." : "Quiet hours off.";
+            var capped = caps == 0 ? "No app limits set." : $"{caps} app limit{(caps == 1 ? "" : "s")} set.";
+
+            _hearingDetail.Text = _safetyMonitor.WarningsDisabled(DateTimeOffset.UtcNow)
+                ? "Warnings are turned off. They come back on their own after 30 days."
+                : $"{quiet} {capped}";
+        }
     }
 
     private static Brush BrushFor(string resourceKey) => (Brush)Application.Current.Resources[resourceKey];
@@ -1067,6 +1102,8 @@ public sealed partial class MixerPage : Page
             }
         }
 
+        // A strip that appears while a filter is typed must not ignore it.
+        ApplyStripFilter();
         UpdateMeteredProcesses();
 
         if (_emptyState is not null)

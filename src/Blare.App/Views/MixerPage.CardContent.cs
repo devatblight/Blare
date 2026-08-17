@@ -37,11 +37,11 @@ public sealed partial class MixerPage
 
     private UIElement BuildCardContent(CardKind kind, CardDensity density) => kind switch
     {
-        CardKind.AppMixer => BuildAppMixerCard(),
+        CardKind.AppMixer => BuildAppMixerCard(density),
         CardKind.MasterOutput => BuildMasterCard(density),
-        CardKind.OtherOutputs => BuildOtherOutputsCard(),
-        CardKind.DisplaySpeakers => BuildDisplaySpeakersCard(),
-        CardKind.HearingStatus => BuildHearingCard(),
+        CardKind.OtherOutputs => BuildOtherOutputsCard(density),
+        CardKind.DisplaySpeakers => BuildDisplaySpeakersCard(density),
+        CardKind.HearingStatus => BuildHearingCard(density),
         CardKind.QuickActions => BuildQuickActionsCard(density),
         CardKind.NowPlaying => BuildNowPlayingCard(density),
         CardKind.Scenes => BuildScenesCard(),
@@ -181,7 +181,7 @@ public sealed partial class MixerPage
         return stack;
     }
 
-    private UIElement BuildAppMixerCard()
+    private UIElement BuildAppMixerCard(CardDensity density)
     {
         _stripsPanel = new StackPanel
         {
@@ -210,7 +210,29 @@ public sealed partial class MixerPage
             Content = _stripsPanel,
         };
 
-        var host = new Grid();
+        var host = new Grid { RowSpacing = 8 };
+        host.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        host.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+
+        // Only worth the row it costs once there are enough strips to have to
+        // hunt through them.
+        if (density == CardDensity.Expanded)
+        {
+            _stripFilter = new TextBox
+            {
+                PlaceholderText = "Filter apps",
+                FontSize = 12,
+                MaxWidth = 220,
+                HorizontalAlignment = HorizontalAlignment.Left,
+            };
+
+            _stripFilter.TextChanged += (_, _) => ApplyStripFilter();
+            Grid.SetRow(_stripFilter, 0);
+            host.Children.Add(_stripFilter);
+        }
+
+        Grid.SetRow(scroller, 1);
+        Grid.SetRow(_emptyState, 1);
         host.Children.Add(scroller);
         host.Children.Add(_emptyState);
         return host;
@@ -221,7 +243,7 @@ public sealed partial class MixerPage
     /// panel failed to load; an icon and a second line make it clear this is a
     /// normal, quiet state rather than something being broken.
     /// </summary>
-    private static UIElement BuildEmptyState()
+    private static FrameworkElement BuildEmptyState()
     {
         var stack = new StackPanel
         {
@@ -310,7 +332,7 @@ public sealed partial class MixerPage
         return stack;
     }
 
-    private UIElement BuildOtherOutputsCard()
+    private UIElement BuildOtherOutputsCard(CardDensity density)
     {
         var stack = new StackPanel { Spacing = 6 };
 
@@ -321,6 +343,20 @@ public sealed partial class MixerPage
             if (devices.Count == 0)
             {
                 return new TextBlock { Text = "No other outputs.", Opacity = 0.5, FontSize = 12 };
+            }
+
+            // A short card can't show a fader per device without cutting the
+            // list off, so it reports what is there and defers the controls to
+            // a bigger card rather than showing the first two and hiding three.
+            if (density == CardDensity.Compact)
+            {
+                return new TextBlock
+                {
+                    Text = devices.Count == 1 ? "1 other output. Make the card taller to adjust it." : $"{devices.Count} other outputs. Make the card taller to adjust them.",
+                    Opacity = 0.55,
+                    FontSize = 12,
+                    TextWrapping = TextWrapping.Wrap,
+                };
             }
 
             foreach (var device in devices)
@@ -340,7 +376,7 @@ public sealed partial class MixerPage
         return stack;
     }
 
-    private UIElement BuildDisplaySpeakersCard()
+    private UIElement BuildDisplaySpeakersCard(CardDensity density)
     {
         try
         {
@@ -354,6 +390,17 @@ public sealed partial class MixerPage
                 {
                     Text = "No display reports a speaker volume.",
                     Opacity = 0.5,
+                    FontSize = 12,
+                    TextWrapping = TextWrapping.Wrap,
+                };
+            }
+
+            if (density == CardDensity.Compact)
+            {
+                return new TextBlock
+                {
+                    Text = $"{controls.Count} display{(controls.Count == 1 ? "" : "s")} with speaker control. Make the card taller to use them.",
+                    Opacity = 0.55,
                     FontSize = 12,
                     TextWrapping = TextWrapping.Wrap,
                 };
@@ -378,16 +425,44 @@ public sealed partial class MixerPage
         }
     }
 
-    private UIElement BuildHearingCard()
+    private UIElement BuildHearingCard(CardDensity density)
     {
         _warningCountText = new TextBlock { Text = "no warnings", FontSize = 12 };
         _exposureText = new TextBlock { Text = "0m loud today", FontSize = 12 };
         _warningDot = NewDot();
         _exposureDot = NewDot();
 
+        // Compact puts both readings on one line with a single dot for the worse
+        // of the two, because two stacked rows do not fit and half a status is
+        // worse than a terse one.
+        if (density == CardDensity.Compact)
+        {
+            var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+            row.Children.Add(_warningDot);
+            row.Children.Add(_exposureText);
+
+            UpdateStatusChips();
+            return row;
+        }
+
         var stack = new StackPanel { Spacing = 8 };
         stack.Children.Add(DotRow(_warningDot, _warningCountText));
         stack.Children.Add(DotRow(_exposureDot, _exposureText));
+
+        // With room to spare, say what the safeguards are actually doing rather
+        // than leaving the space empty.
+        if (density == CardDensity.Expanded)
+        {
+            _hearingDetail = new TextBlock
+            {
+                FontSize = 11.5,
+                Opacity = 0.55,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 4, 0, 0),
+            };
+
+            stack.Children.Add(_hearingDetail);
+        }
 
         UpdateStatusChips();
         return stack;

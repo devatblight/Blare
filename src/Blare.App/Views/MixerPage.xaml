@@ -58,6 +58,11 @@
                     <MenuFlyout x:Name="AddCardFlyout" />
                 </DropDownButton.Flyout>
             </DropDownButton>
+            <Button
+                x:Name="TidyLayoutButton"
+                Content="Tidy up"
+                ToolTipService.ToolTip="Close the gaps between cards without changing their order"
+                Click="OnTidyLayoutClick" />
             <Button x:Name="ResetLayoutButton" Content="Reset layout" Click="OnResetLayoutClick" />
             <TextBlock
                 Text="Drag a card to move it, drag its corner to resize"

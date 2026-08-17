@@ -122,6 +122,82 @@ public sealed class DashboardLayout
 
     public void Add(DashboardCard card) => _cards.Add(Clamp(card));
 
+    /// <summary>
+    /// Finds room for a new card, trying progressively harder rather than
+    /// refusing the moment a perfect gap is missing.
+    ///
+    /// The old behaviour asked for one fixed size and gave up if no rectangle
+    /// that big was free, which told the user the desk was full while a third of
+    /// it sat empty in pieces. Now it shrinks the card toward the smallest size
+    /// its content still works at, and only if that fails does it repack
+    /// everything and try again.
+    /// </summary>
+    /// <returns>The placed card, or null when the grid genuinely has no room.</returns>
+    public DashboardCard? TryAdd(string id, CardKind kind, int preferredColumns, int preferredRows)
+    {
+        var bounds = CardSizing.For(kind);
+
+        var maxColumns = Math.Clamp(preferredColumns, bounds.MinColumns, bounds.MaxColumns);
+        var maxRows = Math.Clamp(preferredRows, bounds.MinRows, bounds.MaxRows);
+
+        if (Place(maxColumns, maxRows) is { } placed)
+        {
+            return placed;
+        }
+
+        // Nothing fits as-is. Repacking closes the gaps left by cards that were
+        // moved or removed, which is usually where the missing room went.
+        Compact();
+
+        return Place(maxColumns, maxRows);
+
+        DashboardCard? Place(int columns, int rows)
+        {
+            for (var height = rows; height >= bounds.MinRows; height--)
+            {
+                for (var width = columns; width >= bounds.MinColumns; width--)
+                {
+                    if (FindFreeSlot(width, height) is not { } slot)
+                    {
+                        continue;
+                    }
+
+                    var card = new DashboardCard(id, kind, slot.Column, slot.Row, width, height);
+                    Add(card);
+                    return Get(id);
+                }
+            }
+
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Repacks every card against the top-left, keeping their order and size.
+    ///
+    /// Moving and removing cards leaves the grid holed: the free space is still
+    /// there but scattered, so nothing new fits. This closes the holes without
+    /// changing what the user arranged relative to each other.
+    /// </summary>
+    public void Compact()
+    {
+        var ordered = _cards
+            .OrderBy(card => card.Row)
+            .ThenBy(card => card.Column)
+            .ToList();
+
+        _cards.Clear();
+
+        foreach (var card in ordered)
+        {
+            var slot = FindFreeSlot(card.ColumnSpan, card.RowSpan);
+
+            _cards.Add(slot is { } free
+                ? card with { Column = free.Column, Row = free.Row }
+                : card);
+        }
+    }
+
     public void Remove(string id) => _cards.RemoveAll(c => c.Id == id);
 
     public void Move(string id, int column, int row) =>

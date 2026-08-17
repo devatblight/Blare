@@ -88,6 +88,92 @@ public class DashboardLayoutTests
     }
 
     [Fact]
+    public void TryAdd_ShrinksTheCardRatherThanRefusingWhenTheGapIsSmall()
+    {
+        // The complaint this answers: "adding a card sometimes doesn't add one
+        // even though there's technically room".
+        var layout = new DashboardLayout();
+        layout.Add(new DashboardCard("wide", CardKind.AppMixer, 0, 0, 12, 9));
+
+        // Three rows left at the bottom — less than the preferred six.
+        var placed = layout.TryAdd("new", CardKind.NowPlaying, 4, 6);
+
+        Assert.NotNull(placed);
+        Assert.True(placed!.Bottom <= DashboardLayout.Rows);
+        Assert.DoesNotContain(layout.Cards, other => other.Id != "new" && other.Overlaps(placed));
+    }
+
+    [Fact]
+    public void TryAdd_RepacksAScatteredGridToMakeRoom()
+    {
+        // Free space exists but in pieces, so nothing large fits until the
+        // holes are closed.
+        var layout = new DashboardLayout();
+        layout.Add(new DashboardCard("a", CardKind.QuickActions, 0, 0, 3, 3));
+        layout.Add(new DashboardCard("b", CardKind.QuickActions, 6, 0, 3, 3));
+        layout.Add(new DashboardCard("c", CardKind.QuickActions, 0, 6, 3, 3));
+
+        var placed = layout.TryAdd("mixer", CardKind.AppMixer, 12, 6);
+
+        Assert.NotNull(placed);
+        Assert.Equal(4, layout.Cards.Count);
+    }
+
+    [Fact]
+    public void TryAdd_ReturnsNullOnlyWhenTheGridIsGenuinelyFull()
+    {
+        var layout = new DashboardLayout();
+        layout.Add(FullGridCard("full"));
+
+        Assert.Null(layout.TryAdd("new", CardKind.QuickActions, 3, 3));
+    }
+
+    [Fact]
+    public void TryAdd_NeverPlacesACardOnTopOfAnother()
+    {
+        var layout = new DashboardLayout();
+
+        for (var i = 0; i < 8; i++)
+        {
+            layout.TryAdd($"card{i}", CardKind.QuickActions, 3, 3);
+        }
+
+        for (var i = 0; i < layout.Cards.Count; i++)
+        {
+            for (var j = i + 1; j < layout.Cards.Count; j++)
+            {
+                Assert.False(layout.Cards[i].Overlaps(layout.Cards[j]));
+            }
+        }
+    }
+
+    [Fact]
+    public void TryAdd_RespectsTheKindsMinimumSize()
+    {
+        var layout = new DashboardLayout();
+        var placed = layout.TryAdd("mixer", CardKind.AppMixer, 2, 2);
+        var bounds = CardSizing.For(CardKind.AppMixer);
+
+        Assert.NotNull(placed);
+        Assert.True(placed!.ColumnSpan >= bounds.MinColumns);
+        Assert.True(placed.RowSpan >= bounds.MinRows);
+    }
+
+    [Fact]
+    public void Compact_ClosesHolesWithoutLosingCards()
+    {
+        var layout = new DashboardLayout();
+        layout.Add(new DashboardCard("a", CardKind.QuickActions, 6, 6, 3, 3));
+        layout.Add(new DashboardCard("b", CardKind.QuickActions, 0, 9, 3, 3));
+
+        layout.Compact();
+
+        Assert.Equal(2, layout.Cards.Count);
+        Assert.Equal((0, 0), (layout.Get("a")!.Column, layout.Get("a")!.Row));
+        Assert.False(layout.Get("a")!.Overlaps(layout.Get("b")!));
+    }
+
+    [Fact]
     public void DefaultLayout_HasNoOverlappingCards()
     {
         var cards = DashboardLayout.CreateDefault().Cards;
