@@ -191,7 +191,7 @@
                 <controls:SettingsExpander.HeaderIcon>
                     <FontIcon Glyph="&#xE946;" />
                 </controls:SettingsExpander.HeaderIcon>
-                <TextBlock Text="0.1.0" VerticalAlignment="Center" Opacity="0.7" />
+                <TextBlock Text="0.2.0" VerticalAlignment="Center" Opacity="0.7" />
             </controls:SettingsExpander>
         </StackPanel>
     </ScrollViewer>
