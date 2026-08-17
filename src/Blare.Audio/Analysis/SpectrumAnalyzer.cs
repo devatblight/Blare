@@ -1,4 +1,4 @@
-namespace BLight.Blare.Audio.Analysis;
+namespace Blight.Blare.Audio.Analysis;
 
 /// <summary>
 /// Turns a stream of interleaved PCM float samples into a small set of

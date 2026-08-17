@@ -1,7 +1,7 @@
 using System.Collections.Concurrent;
-using BLight.Blare.Audio.Boost;
+using Blight.Blare.Audio.Boost;
 
-namespace BLight.Blare.Audio.Analysis;
+namespace Blight.Blare.Audio.Analysis;
 
 /// <summary>Why a given app's meter is or isn't moving. Surfaced in Diagnostics so a dead meter is explainable rather than mysterious.</summary>
 public sealed record SpectrumWatchStatus(

@@ -1,4 +1,4 @@
-namespace BLight.Blare.Audio.Boost;
+namespace Blight.Blare.Audio.Boost;
 
 /// <summary>
 /// Brick-wall lookahead peak limiter — sits after <see cref="GainProcessor"/>

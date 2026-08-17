@@ -1,41 +1,49 @@
-using BLight.Blare.Audio.Boost;
-using BLight.Blare.Audio.Sessions;
-using BLight.Blare.Core.Safety;
+using Blight.Blare.App.Views;
+using Blight.Blare.Audio.Boost;
+using Blight.Blare.Audio.Sessions;
+using Blight.Blare.Core.Safety;
 
-namespace BLight.Blare.App.Services;
+namespace Blight.Blare.App.Services;
 
 /// <summary>
-/// Owns one <see cref="BoostEngine"/> per boosted process and translates a
-/// single volume-percent value (0-300, where >100 means boosted) into
-/// either a plain Phase 1 volume set or a Phase 2 boost start/adjust/stop —
-/// so the UI only ever deals with "set this app to X%" and doesn't need to
-/// know which mechanism is behind it.
+/// Owns one <see cref="BoostEngine"/> per boosted app and turns a single
+/// volume-percent value into either a plain session volume (at or below 100%)
+/// or a real boost pipeline (above it), so the UI only ever says "set this app
+/// to X%".
+///
+/// Boost is time-limited on purpose. Amplified audio is exactly the situation
+/// the health features exist for, and the risk comes from listening at that
+/// level for a long stretch, so every boost expires on its own rather than
+/// running until someone remembers to turn it off.
 /// </summary>
 public sealed class BoostCoordinator
 {
-    /// <summary>
-    /// Whether above-unity boost can work at all on this build. False because
-    /// per-process loopback capture is applied after session volume and mute,
-    /// so the original can't be silenced and re-amplified — see
-    /// <see cref="SetVolumePercentAsync"/>. Surfaced in the UI so the boost
-    /// controls state the truth rather than offering a setting that does nothing.
-    /// </summary>
-    public const bool BoostAvailable = false;
+    public const double SafeCeilingPercent = 150;
+    public const double OverriddenCeilingPercent = 300;
 
-    // Held at unity while the boost pipeline is out of action so faders can't
-    // be dragged into a range that does nothing.
-    public const double SafeCeilingPercent = 100;
-    public const double OverriddenCeilingPercent = 100;
+    /// <summary>How long a boost runs before it lapses back to normal.</summary>
+    public static readonly TimeSpan AutoDisableAfter = TimeSpan.FromMinutes(30);
 
     private readonly AudioSessionManager _sessionManager;
     private readonly ConsentState _consent;
+    private readonly FlyoutService _flyout;
     private readonly Dictionary<uint, BoostEngine> _engines = new();
+    private readonly Dictionary<uint, string> _namesByProcess = new();
+    private readonly System.Timers.Timer _expiryTimer;
 
-    public BoostCoordinator(AudioSessionManager sessionManager, ConsentState consent)
+    public BoostCoordinator(AudioSessionManager sessionManager, ConsentState consent, FlyoutService flyout)
     {
         _sessionManager = sessionManager;
         _consent = consent;
+        _flyout = flyout;
+
+        _expiryTimer = new System.Timers.Timer(TimeSpan.FromSeconds(20).TotalMilliseconds) { AutoReset = true };
+        _expiryTimer.Elapsed += (_, _) => _ = ExpireStaleBoostsAsync();
+        _expiryTimer.Start();
     }
+
+    /// <summary>Raised when a boost ends by itself, so the UI can put the fader back.</summary>
+    public event EventHandler<uint>? BoostEnded;
 
     public bool IsBoosted(uint processId) => _engines.TryGetValue(processId, out var engine) && engine.IsRunning;
 
@@ -43,37 +51,116 @@ public sealed class BoostCoordinator
 
     public int BoostedCount => _engines.Values.Count(e => e.IsRunning);
 
+    /// <summary>How long until a boost lapses, or null when that app isn't boosted.</summary>
+    public TimeSpan? TimeRemaining(uint processId) =>
+        _engines.TryGetValue(processId, out var engine) && engine is { IsRunning: true, StartedAt: { } started }
+            ? AutoDisableAfter - (DateTimeOffset.UtcNow - started)
+            : null;
+
     public double CurrentCeilingPercent(DateTimeOffset now) =>
         _consent.IsActive(ConsentKind.SafeBoostCeilingOverride, now) ? OverriddenCeilingPercent : SafeCeilingPercent;
 
     public void GrantCeilingOverride(DateTimeOffset now) => _consent.Grant(ConsentKind.SafeBoostCeilingOverride, now);
 
-    /// <summary>Drops back to the safe ceiling. Unlike granting, this needs no confirmation — moving toward safety is never gated.</summary>
+    /// <summary>Drops back to the safe ceiling. Needs no confirmation — moving toward safety is never gated.</summary>
     public void RevokeCeilingOverride() => _consent.Revoke(ConsentKind.SafeBoostCeilingOverride);
 
-    public async Task SetVolumePercentAsync(uint processId, double volumePercent)
+    public void RememberName(uint processId, string displayName) => _namesByProcess[processId] = displayName;
+
+    public async Task SetVolumePercentAsync(uint processId, double volumePercent, double currentVolumePercent)
     {
-        // The boost pipeline is disabled: BoostEngine silences the original
-        // session so the boosted re-render can replace it, but measurement
-        // showed per-process loopback capture is applied AFTER session
-        // volume/mute — so silencing the original also silences what we
-        // capture, and boost renders pure silence. Engaging it here would
-        // kill the app's audio outright, which is worse than not boosting.
-        // Volume is clamped to unity until boost has a working mechanism.
-        if (_engines.TryGetValue(processId, out var runningEngine) && runningEngine.IsRunning)
+        if (volumePercent > 100)
         {
-            await runningEngine.StopAsync();
+            var gain = (float)(volumePercent / 100.0);
+
+            if (_engines.TryGetValue(processId, out var existing) && existing.IsRunning)
+            {
+                existing.GainLinear = gain;
+                return;
+            }
+
+            var engine = new BoostEngine(_sessionManager);
+            engine.Stopped += (_, reason) => OnEngineStopped(processId, reason);
+            _engines[processId] = engine;
+
+            // Start from the level the app was at, so releasing boost restores it.
+            engine.Start(processId, gain, (float)(Math.Clamp(currentVolumePercent, 0, 100) / 100.0));
+
+            _flyout.Show(
+                $"{NameFor(processId)} boosted",
+                $"Now at {volumePercent:F0}%. Boost turns itself off after {AutoDisableAfter.TotalMinutes:F0} minutes.",
+                FlyoutTone.Caution,
+                TimeSpan.FromSeconds(5));
+
+            return;
         }
 
-        var clamped = Math.Clamp(volumePercent, 0, 100);
-        _sessionManager.SetVolume(processId, (float)(clamped / 100.0));
+        if (_engines.TryGetValue(processId, out var running) && running.IsRunning)
+        {
+            await running.StopAsync();
+            _engines.Remove(processId);
+        }
+
+        _sessionManager.SetVolume(processId, (float)(Math.Clamp(volumePercent, 0, 100) / 100.0));
+    }
+
+    public async Task StopAsync(uint processId)
+    {
+        if (_engines.TryGetValue(processId, out var engine) && engine.IsRunning)
+        {
+            await engine.StopAsync();
+        }
+
+        _engines.Remove(processId);
     }
 
     public async Task StopAllAsync()
     {
-        foreach (var engine in _engines.Values.Where(e => e.IsRunning))
+        foreach (var processId in _engines.Keys.ToList())
         {
-            await engine.StopAsync();
+            await StopAsync(processId);
         }
     }
+
+    private async Task ExpireStaleBoostsAsync()
+    {
+        foreach (var (processId, engine) in _engines.ToList())
+        {
+            if (!engine.IsRunning || engine.StartedAt is not { } started)
+            {
+                continue;
+            }
+
+            if (DateTimeOffset.UtcNow - started < AutoDisableAfter)
+            {
+                continue;
+            }
+
+            await StopAsync(processId);
+
+            _flyout.Show(
+                "Boost turned off",
+                $"{NameFor(processId)} had been boosted for {AutoDisableAfter.TotalMinutes:F0} minutes. Volume is back to normal.",
+                FlyoutTone.Caution,
+                TimeSpan.FromSeconds(8));
+
+            BoostEnded?.Invoke(this, processId);
+        }
+    }
+
+    private void OnEngineStopped(uint processId, string reason)
+    {
+        _engines.Remove(processId);
+
+        _flyout.Show(
+            "Boost stopped",
+            $"{NameFor(processId)} could not keep boosting — {reason}",
+            FlyoutTone.Danger,
+            TimeSpan.FromSeconds(8));
+
+        BoostEnded?.Invoke(this, processId);
+    }
+
+    private string NameFor(uint processId) =>
+        _namesByProcess.TryGetValue(processId, out var name) ? name : $"pid {processId}";
 }

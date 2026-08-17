@@ -1,4 +1,4 @@
-namespace BLight.Blare.Audio.Analysis;
+namespace Blight.Blare.Audio.Analysis;
 
 /// <summary>
 /// In-place iterative radix-2 Cooley-Tukey FFT. Length must be a power of

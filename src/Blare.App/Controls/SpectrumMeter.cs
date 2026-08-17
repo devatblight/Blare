@@ -3,7 +3,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Shapes;
 
-namespace BLight.Blare.App.Controls;
+namespace Blight.Blare.App.Controls;
 
 /// <summary>
 /// Draws live FFT band levels as a column of vertical bars, each bar built

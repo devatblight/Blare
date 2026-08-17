@@ -1,11 +1,11 @@
 using System.Text.Json;
 
-namespace BLight.Blare.Core.Settings;
+namespace Blight.Blare.Core.Settings;
 
 /// <summary>
 /// Settings persistence contract. Deliberately just a directory-backed file
 /// store with no network dependency anywhere in this project — Blare keeps
-/// everything local (see BLight privacy stance: no network access except
+/// everything local (see Blight privacy stance: no network access except
 /// app updates, handled elsewhere).
 /// </summary>
 public interface ISettingsStore

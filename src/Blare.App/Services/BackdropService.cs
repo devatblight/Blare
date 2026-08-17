@@ -1,9 +1,9 @@
-using BLight.Blare.Core.Settings;
+using Blight.Blare.Core.Settings;
 using Microsoft.UI.Composition.SystemBackdrops;
 using Microsoft.UI.Xaml;
 using WinRT;
 
-namespace BLight.Blare.App.Services;
+namespace Blight.Blare.App.Services;
 
 public enum BackdropKind
 {

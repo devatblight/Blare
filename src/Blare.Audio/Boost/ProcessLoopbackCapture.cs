@@ -4,7 +4,7 @@ using Windows.Win32.Foundation;
 using Windows.Win32.Media.Audio;
 using Windows.Win32.System.Com.StructuredStorage;
 
-namespace BLight.Blare.Audio.Boost;
+namespace Blight.Blare.Audio.Boost;
 
 /// <summary>
 /// Milestone-0 Spike B result (see plan §3): captures one process's

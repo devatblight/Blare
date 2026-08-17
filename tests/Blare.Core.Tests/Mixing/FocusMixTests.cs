@@ -1,4 +1,4 @@
-using BLight.Blare.Core.Mixing;
+using Blight.Blare.Core.Mixing;
 
 namespace Blare.Core.Tests.Mixing;
 

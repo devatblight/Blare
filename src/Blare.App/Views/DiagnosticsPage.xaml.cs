@@ -1,9 +1,9 @@
 using System.Text;
-using BLight.Blare.App.Services;
-using BLight.Blare.Audio.Analysis;
-using BLight.Blare.Audio.Devices;
-using BLight.Blare.Audio.Sessions;
-using BLight.Blare.Core.Safety;
+using Blight.Blare.App.Services;
+using Blight.Blare.Audio.Analysis;
+using Blight.Blare.Audio.Devices;
+using Blight.Blare.Audio.Sessions;
+using Blight.Blare.Core.Safety;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Text;
@@ -12,7 +12,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Windows.ApplicationModel.DataTransfer;
 
-namespace BLight.Blare.App.Views;
+namespace Blight.Blare.App.Views;
 
 /// <summary>
 /// Live view of everything Blare is doing, so no behaviour is hidden.
@@ -351,18 +351,24 @@ public sealed partial class DiagnosticsPage : Page
     {
         var boost = Service<BoostCoordinator>();
 
-        body.Children.Add(Pill(
-            BoostCoordinator.BoostAvailable ? "AVAILABLE" : "UNAVAILABLE",
-            BoostCoordinator.BoostAvailable ? "BlareMeterLow" : "BlareMeterMid"));
+        var anyBoosted = boost.AnyBoosted;
+
+        body.Children.Add(Pill(anyBoosted ? "BOOSTING" : "IDLE", anyBoosted ? "BlareMeterHigh" : "BlareMeterLow"));
 
         body.Children.Add(Row("Volume ceiling", $"{boost.CurrentCeilingPercent(now):F0}%"));
         body.Children.Add(Row("Apps boosted", boost.BoostedCount.ToString()));
+        body.Children.Add(Row("Turns off after", $"{BoostCoordinator.AutoDisableAfter.TotalMinutes:F0} minutes"));
+        body.Children.Add(Row(
+            "Original held at",
+            $"{Blight.Blare.Audio.Boost.BoostEngine.ResidualLevel:P0} while boosting"));
 
         body.Children.Add(Note(
-            "Windows applies an app's volume before Blare can capture its audio, so silencing " +
-            "the original to replace it with a louder copy silences the copy too. Measured: a " +
-            "muted app captures at 0.000000 where an unmuted one captures at 0.567. " +
-            "Use Focus on a channel strip to make one app dominant instead."));
+            "Windows applies an app's volume before Blare captures it, so a muted app captures " +
+            "silence and can't be amplified — measured at 0.000000 muted against 0.567 unmuted. " +
+            "Boost therefore holds the original at a residual level rather than muting it, and " +
+            "multiplies the captured signal back up. What leaks through directly is about -34 dB " +
+            "below the boosted output. Every boost expires on its own so amplified audio can't " +
+            "run indefinitely."));
     }
 
     private static void BuildEnvironment(StackPanel body)

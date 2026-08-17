@@ -1,5 +1,5 @@
-using BLight.Blare.Core.Safety;
-using BLight.Blare.Core.Settings;
+using Blight.Blare.Core.Safety;
+using Blight.Blare.Core.Settings;
 
 namespace Blare.Core.Tests.Safety;
 

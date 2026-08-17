@@ -1,4 +1,4 @@
-using BLight.Blare.Core.Safety;
+using Blight.Blare.Core.Safety;
 
 namespace Blare.Core.Tests.Safety;
 

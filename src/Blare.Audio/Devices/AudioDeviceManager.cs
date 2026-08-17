@@ -1,11 +1,11 @@
 using System.Runtime.InteropServices;
-using BLight.Blare.Core.Models;
+using Blight.Blare.Core.Models;
 using Windows.Win32;
 using Windows.Win32.Media.Audio;
 using Windows.Win32.Media.Audio.Endpoints;
 using Windows.Win32.System.Com;
 
-namespace BLight.Blare.Audio.Devices;
+namespace Blight.Blare.Audio.Devices;
 
 /// <summary>
 /// Phase 1 device enumeration and per-device/master volume (see plan §2).

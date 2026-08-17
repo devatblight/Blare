@@ -1,4 +1,4 @@
-namespace BLight.Blare.Audio.Sessions;
+namespace Blight.Blare.Audio.Sessions;
 
 /// <summary>Plain snapshot of one enumerated session — no COM types, so this is easy to fake in tests.</summary>
 public sealed record SessionSnapshot(string SessionKey, Guid GroupingParam, uint ProcessId);

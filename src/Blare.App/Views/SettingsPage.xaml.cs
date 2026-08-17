@@ -1,9 +1,11 @@
-using BLight.Blare.App.Services;
+using Blight.Blare.App.Services;
+using Blight.Blare.Core.Settings;
+using Microsoft.UI.Xaml.Media;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 
-namespace BLight.Blare.App.Views;
+namespace Blight.Blare.App.Views;
 
 public sealed partial class SettingsPage : Page
 {
@@ -11,6 +13,9 @@ public sealed partial class SettingsPage : Page
     private readonly BoostCoordinator _boostCoordinator;
     private readonly ThemeService _themeService;
     private readonly BackdropService _backdropService;
+    private readonly FlyoutService _flyoutService;
+    private readonly UpdateService _updateService;
+    private readonly Dictionary<FlyoutPosition, Button> _positionCells = new();
     private bool _initializing = true;
 
     public SettingsPage()
@@ -19,11 +24,16 @@ public sealed partial class SettingsPage : Page
         _boostCoordinator = App.Services.GetRequiredService<BoostCoordinator>();
         _themeService = App.Services.GetRequiredService<ThemeService>();
         _backdropService = App.Services.GetRequiredService<BackdropService>();
+        _flyoutService = App.Services.GetRequiredService<FlyoutService>();
+        _updateService = App.Services.GetRequiredService<UpdateService>();
 
         InitializeComponent();
 
+        BuildPositionGrid();
+
         ThemeComboBox.SelectedIndex = _themeService.Current == BlareTheme.StudioDark ? 1 : 0;
         BackdropComboBox.SelectedIndex = (int)_backdropService.Requested;
+        UpdateChecksToggle.IsOn = _updateService.ChecksEnabled;
 
         // Say so rather than silently substituting when the OS can't do Mica.
         if (!BackdropService.MicaSupported)
@@ -49,6 +59,118 @@ public sealed partial class SettingsPage : Page
             await _themeService.SetAsync(theme);
         }
     }
+
+    /// <summary>
+    /// Nine cells laid over a mock display. Picking a cell is the whole
+    /// interaction — no dropdown of position names, because "bottom right"
+    /// is much easier to recognise as a shape than to read as a word.
+    /// </summary>
+    private void BuildPositionGrid()
+    {
+        foreach (var position in Enum.GetValues<FlyoutPosition>())
+        {
+            var cell = new Button
+            {
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                VerticalAlignment = VerticalAlignment.Stretch,
+                Padding = new Thickness(0),
+                CornerRadius = new CornerRadius(4),
+                Tag = position,
+            };
+
+            ToolTipService.SetToolTip(cell, DescribePosition(position));
+            cell.Click += OnPositionCellClick;
+
+            Grid.SetRow(cell, position.Row());
+            Grid.SetColumn(cell, position.Column());
+            PositionGrid.Children.Add(cell);
+            _positionCells[position] = cell;
+        }
+
+        UpdatePositionSelection();
+    }
+
+    private async void OnPositionCellClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: FlyoutPosition position })
+        {
+            return;
+        }
+
+        await _flyoutService.SetPositionAsync(position);
+        UpdatePositionSelection();
+    }
+
+    private void UpdatePositionSelection()
+    {
+        foreach (var (position, cell) in _positionCells)
+        {
+            var selected = position == _flyoutService.Position;
+
+            cell.Background = selected
+                ? (Brush)Application.Current.Resources["BlareAccent"]
+                : (Brush)Application.Current.Resources["BlareStripBackground"];
+            cell.Opacity = selected ? 1 : 0.5;
+        }
+
+        FlyoutPositionLabel.Text = DescribePosition(_flyoutService.Position);
+    }
+
+    private static string DescribePosition(FlyoutPosition position)
+    {
+        var row = position.Row() switch { 0 => "Top", 1 => "Middle", _ => "Bottom" };
+        var column = position.Column() switch { 0 => "left", 1 => "centre", _ => "right" };
+        return $"{row} {column}";
+    }
+
+    private async void OnCheckUpdatesClick(object sender, RoutedEventArgs e)
+    {
+        CheckUpdatesButton.IsEnabled = false;
+        CheckUpdatesButton.Content = "Checking...";
+
+        var update = await _updateService.CheckAsync(notify: false);
+
+        CheckUpdatesButton.Content = "Check now";
+        CheckUpdatesButton.IsEnabled = true;
+
+        if (update is not null)
+        {
+            _flyoutService.Show(
+                $"Blare {update.Version} is available",
+                $"You're on {UpdateService.CurrentVersion}.",
+                FlyoutTone.Neutral,
+                TimeSpan.FromSeconds(10),
+                "Get it",
+                () => UpdateService.OpenInBrowser(update.ReleaseUrl));
+        }
+        else
+        {
+            _flyoutService.Show(
+                "Blare is up to date",
+                _updateService.LastError is { } error
+                    ? $"Couldn't reach GitHub — {error}"
+                    : $"You're on {UpdateService.CurrentVersion}.",
+                _updateService.LastError is null ? FlyoutTone.Neutral : FlyoutTone.Caution,
+                TimeSpan.FromSeconds(5));
+        }
+    }
+
+    private async void OnUpdateChecksToggled(object sender, RoutedEventArgs e)
+    {
+        if (_initializing)
+        {
+            return;
+        }
+
+        await _updateService.SetChecksEnabledAsync(UpdateChecksToggle.IsOn);
+    }
+
+    private void OnPreviewFlyoutClick(object sender, RoutedEventArgs e) =>
+        _flyoutService.Show(
+            "This is Blare",
+            "Messages appear here. Hover to keep one on screen.",
+            FlyoutTone.Neutral,
+            TimeSpan.FromSeconds(4));
 
     private async void OnBackdropChanged(object sender, SelectionChangedEventArgs e)
     {
@@ -116,19 +238,10 @@ public sealed partial class SettingsPage : Page
 
     private void UpdateRaiseCeilingButton()
     {
-        // Don't offer a ceiling control while boost can't do anything — an
-        // enabled-looking button that changes nothing is worse than an honest
-        // disabled one.
-        if (!BoostCoordinator.BoostAvailable)
-        {
-            RaiseCeilingButton.Content = "Unavailable";
-            RaiseCeilingButton.IsEnabled = false;
-            BoostCeilingCard.Description =
-                "Boost above 100% is currently unavailable: Windows applies per-app volume before Blare can capture the audio, so an app can't be silenced and re-amplified. Use Focus on a channel strip to make one app dominant instead.";
-            return;
-        }
-
         var allowed = _boostCoordinator.CurrentCeilingPercent(DateTimeOffset.UtcNow) >= BoostCoordinator.OverriddenCeilingPercent;
+
         RaiseCeilingButton.Content = allowed ? "Back to 150% limit" : "Allow up to 300%";
+        BoostCeilingCard.Description =
+            $"How far past 100% a single app can be pushed. Boost always turns itself off after {BoostCoordinator.AutoDisableAfter.TotalMinutes:F0} minutes.";
     }
 }

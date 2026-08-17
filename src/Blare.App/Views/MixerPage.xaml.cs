@@ -1,19 +1,19 @@
 using System.ComponentModel;
 using System.Diagnostics;
-using BLight.Blare.App.Controls;
-using BLight.Blare.App.Services;
-using BLight.Blare.App.ViewModels;
-using BLight.Blare.Audio.Analysis;
-using BLight.Blare.Audio.Devices;
-using BLight.Blare.Audio.Sessions;
-using BLight.Blare.Core.Mixing;
-using BLight.Blare.Core.Settings;
+using Blight.Blare.App.Controls;
+using Blight.Blare.App.Services;
+using Blight.Blare.App.ViewModels;
+using Blight.Blare.Audio.Analysis;
+using Blight.Blare.Audio.Devices;
+using Blight.Blare.Audio.Sessions;
+using Blight.Blare.Core.Mixing;
+using Blight.Blare.Core.Settings;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 
-namespace BLight.Blare.App.Views;
+namespace Blight.Blare.App.Views;
 
 public sealed partial class MixerPage : Page
 {
@@ -62,8 +62,13 @@ public sealed partial class MixerPage : Page
         _meterTimer = CreateTimer(TimeSpan.FromMilliseconds(50), RefreshMeters);
         _sessionTimer = CreateTimer(TimeSpan.FromSeconds(2), () => CrashLog.FireAndForget(RefreshSessionsAsync()));
 
+        // Boost lapses on its own after 30 minutes, or if its pipeline fails —
+        // the fader has to follow it back down rather than keep claiming 180%.
+        _boostCoordinator.BoostEnded += OnBoostEnded;
+
         Unloaded += (_, _) =>
         {
+            _boostCoordinator.BoostEnded -= OnBoostEnded;
             _safetyTimer.Stop();
             _meterTimer.Stop();
             _sessionTimer.Stop();
@@ -553,6 +558,23 @@ public sealed partial class MixerPage : Page
         }
     }
 
+    private void OnBoostEnded(object? sender, uint processId)
+    {
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            var strip = _strips.Values.FirstOrDefault(s => s.ViewModel?.ProcessId == processId);
+
+            if (strip?.ViewModel is not { } viewModel)
+            {
+                return;
+            }
+
+            viewModel.VolumePercent = viewModel.LastUnboostedPercent;
+            viewModel.IsBoosted = false;
+            UpdateStatusChips();
+        });
+    }
+
     private IReadOnlyList<uint> ProcessesFor(SessionRowViewModel viewModel) =>
         _processesByApp.TryGetValue(viewModel.AppKey, out var processes)
             ? processes
@@ -568,9 +590,24 @@ public sealed partial class MixerPage : Page
             viewModel.IsMuted = false;
         }
 
-        foreach (var processId in ProcessesFor(viewModel))
+        var processes = ProcessesFor(viewModel);
+
+        // Boost captures and re-renders one stream, so it only ever targets the
+        // representative process; plain volume applies to all of them.
+        if (viewModel.VolumePercent > 100)
         {
-            await _boostCoordinator.SetVolumePercentAsync(processId, viewModel.VolumePercent);
+            _boostCoordinator.RememberName(viewModel.ProcessId, viewModel.DisplayName);
+            await _boostCoordinator.SetVolumePercentAsync(
+                viewModel.ProcessId, viewModel.VolumePercent, viewModel.LastUnboostedPercent);
+        }
+        else
+        {
+            viewModel.LastUnboostedPercent = viewModel.VolumePercent;
+
+            foreach (var processId in processes)
+            {
+                await _boostCoordinator.SetVolumePercentAsync(processId, viewModel.VolumePercent, viewModel.VolumePercent);
+            }
         }
 
         viewModel.IsBoosted = _boostCoordinator.IsBoosted(viewModel.ProcessId);

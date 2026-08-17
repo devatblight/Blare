@@ -1,29 +1,38 @@
-using BLight.Blare.Audio.Sessions;
+using Blight.Blare.Audio.Sessions;
 
-namespace BLight.Blare.Audio.Boost;
+namespace Blight.Blare.Audio.Boost;
 
 /// <summary>
-/// Ties capture → gain → limiter → re-render into the actual Phase 2 boost
-/// pipeline (see plan §3), and coordinates the mute-original step: the
-/// target app's own session volume is driven to 0 via
-/// <see cref="AudioSessionManager"/> while boost is active, since the
-/// process-loopback capture is a *copy* of what the app renders — without
-/// muting the original, the user would hear both it and the boosted
-/// re-render simultaneously.
+/// Phase 2 boost: capture → gain → limiter → re-render.
 ///
-/// Known simplification for v1 (see plan's flagged Phase 2 risks): no
-/// watchdog re-verifying the original stays muted, and no explicit
-/// clock-drift compensation between the independent capture/render
-/// clocks — acceptable for a first working pipeline, not for shipping.
+/// The original stream is <em>attenuated</em>, not muted. Muting looks like the
+/// obvious way to stop hearing the original alongside the boosted copy, but
+/// per-process loopback capture is applied after session volume and mute, so a
+/// muted app captures pure silence and boost amplifies nothing. Measured:
+/// captured peak 0.000000 muted, 0.567 unmuted.
+///
+/// Attenuation works because capture scales linearly with volume. Holding the
+/// original at <see cref="ResidualLevel"/> leaves a signal that is still fully
+/// present in the capture, and multiplying by the reciprocal reconstructs it.
+/// Float32 has ample headroom for that, so nothing is lost numerically. What
+/// the user hears directly from the original is about -34 dB relative to the
+/// boosted render — far enough down to be inaudible under it.
 /// </summary>
 public sealed class BoostEngine
 {
+    /// <summary>Where the original session is held while boosting: quiet enough to be inaudible, loud enough to capture cleanly.</summary>
+    public const float ResidualLevel = 0.02f;
+
+    /// <summary>Consecutive heavily-clamped blocks tolerated before boost gives up. A few is a loud transient; a run of them is a broken pipeline.</summary>
+    private const int RunawayBlockLimit = 10;
+
     private readonly AudioSessionManager _sessionManager;
     private readonly ProcessLoopbackCapture _capture = new();
 
     private CancellationTokenSource? _cts;
     private Task? _pipelineTask;
     private uint _boostedProcessId;
+    private float _volumeBeforeBoost = 1f;
 
     public BoostEngine(AudioSessionManager sessionManager)
     {
@@ -32,10 +41,15 @@ public sealed class BoostEngine
 
     public bool IsRunning => _pipelineTask is { IsCompleted: false };
 
-    /// <summary>Read by the pipeline loop on every block, so a caller (e.g. dragging a slider) can adjust gain live without tearing down and restarting the whole capture/render pipeline.</summary>
+    public DateTimeOffset? StartedAt { get; private set; }
+
+    /// <summary>The boost the user asked for, 1.0 being unity. Read every block so a fader can move it live.</summary>
     public float GainLinear { get; set; } = 1f;
 
-    public void Start(uint processId, float gainLinear)
+    /// <summary>Raised when the pipeline stops on its own — a failure, or the app going away.</summary>
+    public event EventHandler<string>? Stopped;
+
+    public void Start(uint processId, float gainLinear, float currentVolume)
     {
         if (IsRunning)
         {
@@ -43,8 +57,24 @@ public sealed class BoostEngine
         }
 
         _boostedProcessId = processId;
-        GainLinear = gainLinear;
-        _sessionManager.SetMute(processId, true);
+        _volumeBeforeBoost = Math.Clamp(currentVolume, 0f, 1f);
+        GainLinear = BoostSafety.SanitizeGain(gainLinear);
+        StartedAt = DateTimeOffset.UtcNow;
+
+        _sessionManager.SetMute(processId, false);
+        _sessionManager.SetVolume(processId, ResidualLevel);
+
+        // Verify the attenuation actually landed. If the original is still at
+        // full volume, boosting on top of it would stack the direct output and
+        // the amplified copy — the exact scenario that must never reach anyone.
+        var applied = _sessionManager.GetVolume(processId);
+        if (applied > ResidualLevel * 4)
+        {
+            _sessionManager.SetVolume(processId, _volumeBeforeBoost);
+            StartedAt = null;
+            throw new InvalidOperationException(
+                $"Could not attenuate the original stream (still at {applied:P0}); boost refused.");
+        }
 
         _cts = new CancellationTokenSource();
         _pipelineTask = RunPipelineAsync(processId, _cts.Token);
@@ -72,10 +102,13 @@ public sealed class BoostEngine
         }
         finally
         {
-            _sessionManager.SetMute(_boostedProcessId, false);
+            // Put the app back where the user had it — leaving it at the
+            // residual level would look like Blare had broken its audio.
+            _sessionManager.SetVolume(_boostedProcessId, _volumeBeforeBoost);
             _cts.Dispose();
             _cts = null;
             _pipelineTask = null;
+            StartedAt = null;
         }
     }
 
@@ -83,26 +116,69 @@ public sealed class BoostEngine
     {
         var renderer = new BoostRenderer();
         var limiter = new Limiter();
-        renderer.Start();
+        string? failure = null;
+        var runawayBlocks = 0;
 
         try
         {
+            renderer.Start();
+
             await _capture.RunAsync(
                 processId,
                 block =>
                 {
                     var mutable = block.ToArray().AsSpan();
-                    GainProcessor.ApplyGain(mutable, GainLinear);
+
+                    // Undo the residual attenuation, then apply the user's boost.
+                    // Sanitised rather than trusted: a bad gain would turn every
+                    // sample that follows into NaN.
+                    GainProcessor.ApplyGain(mutable, BoostSafety.SanitizeGain(GainLinear / ResidualLevel));
                     limiter.Process(mutable);
+
+                    // Nothing reaches the device without passing this.
+                    var corrections = BoostSafety.Enforce(mutable);
+
+                    if (BoostSafety.IsRunaway(corrections, mutable.Length))
+                    {
+                        // Most of a block needed clamping, so something upstream
+                        // is broken. Stop rather than keep feeding the speakers.
+                        runawayBlocks++;
+
+                        if (runawayBlocks >= RunawayBlockLimit)
+                        {
+                            throw new InvalidOperationException(
+                                "Boost output was clamped continuously — stopped to protect your hearing.");
+                        }
+                    }
+                    else
+                    {
+                        runawayBlocks = 0;
+                    }
+
                     renderer.Write(mutable);
                 },
                 cancellationToken,
                 renderer.SampleRateHz,
                 renderer.Channels);
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            failure = ex.Message;
+        }
         finally
         {
             renderer.Stop();
+        }
+
+        if (failure is not null)
+        {
+            // Restore immediately rather than leaving the app stuck near-silent.
+            _sessionManager.SetVolume(processId, _volumeBeforeBoost);
+            Stopped?.Invoke(this, failure);
         }
     }
 }

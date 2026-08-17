@@ -3,7 +3,7 @@ using Microsoft.UI.Xaml.Data;
 using Microsoft.UI.Xaml.Media;
 using Windows.UI;
 
-namespace BLight.Blare.App.Converters;
+namespace Blight.Blare.App.Converters;
 
 /// <summary>Boosted rows get a visible orange edge instead of the plain card stroke — a glance should tell you which apps are boosted.</summary>
 public sealed class BoostBorderConverter : IValueConverter

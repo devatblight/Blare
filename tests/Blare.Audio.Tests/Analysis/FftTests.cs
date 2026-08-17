@@ -1,4 +1,4 @@
-using BLight.Blare.Audio.Analysis;
+using Blight.Blare.Audio.Analysis;
 
 namespace Blare.Audio.Tests.Analysis;
 

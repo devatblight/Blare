@@ -4,7 +4,7 @@ using Windows.Win32.Media.Audio;
 using Windows.Win32.Media.Audio.Endpoints;
 using Windows.Win32.System.Com;
 
-namespace BLight.Blare.Audio.Sessions;
+namespace Blight.Blare.Audio.Sessions;
 
 public sealed record AudioSessionInfo(
     string SessionKey,
@@ -78,6 +78,14 @@ public sealed class AudioSessionManager
     {
         var clamped = Math.Clamp(level, 0f, 1f);
         WithSimpleVolumeForProcess(processId, sv => sv.SetMasterVolume(clamped, null));
+    }
+
+    /// <summary>Reads a session's current volume, 0..1. Returns 1 when the session can't be found.</summary>
+    public unsafe float GetVolume(uint processId)
+    {
+        var level = 1f;
+        WithSimpleVolumeForProcess(processId, sv => sv.GetMasterVolume(out level));
+        return level;
     }
 
     public unsafe void SetMute(uint processId, bool isMuted) =>

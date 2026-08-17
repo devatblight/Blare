@@ -1,7 +1,7 @@
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 
-namespace BLight.Blare.App;
+namespace Blight.Blare.App;
 
 public static class Program
 {

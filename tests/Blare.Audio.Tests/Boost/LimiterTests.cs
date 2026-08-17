@@ -1,4 +1,4 @@
-using BLight.Blare.Audio.Boost;
+using Blight.Blare.Audio.Boost;
 
 namespace Blare.Audio.Tests.Boost;
 

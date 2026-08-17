@@ -1,4 +1,4 @@
-namespace BLight.Blare.Core.Safety;
+namespace Blight.Blare.Core.Safety;
 
 /// <summary>
 /// A gain/volume threshold past which an app counts as "hot" for tracking

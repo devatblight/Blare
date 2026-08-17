@@ -1,4 +1,4 @@
-namespace BLight.Blare.Core.Mixing;
+namespace Blight.Blare.Core.Mixing;
 
 public sealed record FocusLevel(string AppKey, double VolumePercent);
 

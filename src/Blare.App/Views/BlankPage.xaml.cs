@@ -1,6 +1,6 @@
 using Microsoft.UI.Xaml.Controls;
 
-namespace BLight.Blare.App.Views;
+namespace Blight.Blare.App.Views;
 
 public sealed partial class BlankPage : Page
 {

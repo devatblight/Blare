@@ -1,4 +1,4 @@
-namespace BLight.Blare.Core.Models;
+namespace Blight.Blare.Core.Models;
 
 /// <summary>
 /// A mixer entry for one app, identified by a stable key (executable path or

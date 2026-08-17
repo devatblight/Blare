@@ -2,7 +2,7 @@ using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using Microsoft.UI.Xaml.Media.Imaging;
 
-namespace BLight.Blare.App.ViewModels;
+namespace Blight.Blare.App.ViewModels;
 
 public sealed class SessionRowViewModel : INotifyPropertyChanged
 {
@@ -23,6 +23,9 @@ public sealed class SessionRowViewModel : INotifyPropertyChanged
 
     /// <summary>Stable identity used as the persistence key — empty when the process couldn't be resolved.</summary>
     public string ExecutablePath { get; set; } = string.Empty;
+
+    /// <summary>The level this app sat at before boost took over, so ending a boost restores it rather than leaving the residual attenuation in place.</summary>
+    public double LastUnboostedPercent { get; set; } = 100;
 
     public double VolumePercent
     {

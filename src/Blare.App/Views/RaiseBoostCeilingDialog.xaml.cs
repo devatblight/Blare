@@ -1,6 +1,6 @@
 using Microsoft.UI.Xaml.Controls;
 
-namespace BLight.Blare.App.Views;
+namespace Blight.Blare.App.Views;
 
 /// <summary>Same two-gate pattern as <see cref="DisableWarningsDialog"/>, tracked as an independent consent — see plan's Phase 2 safe-boost-ceiling section.</summary>
 public sealed partial class RaiseBoostCeilingDialog : ContentDialog

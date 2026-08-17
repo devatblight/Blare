@@ -1,13 +1,13 @@
-using BLight.Blare.App.Services;
-using BLight.Blare.Audio.Analysis;
-using BLight.Blare.Audio.Devices;
-using BLight.Blare.Audio.Sessions;
-using BLight.Blare.Core.Safety;
-using BLight.Blare.Core.Settings;
+using Blight.Blare.App.Services;
+using Blight.Blare.Audio.Analysis;
+using Blight.Blare.Audio.Devices;
+using Blight.Blare.Audio.Sessions;
+using Blight.Blare.Core.Safety;
+using Blight.Blare.Core.Settings;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml;
 
-namespace BLight.Blare.App;
+namespace Blight.Blare.App;
 
 public partial class App : Application
 {
@@ -47,6 +47,13 @@ public partial class App : Application
         await Services.GetRequiredService<ThemeService>().LoadAsync();
         await Services.GetRequiredService<ConsentStore>().LoadAsync();
         await Services.GetRequiredService<BackdropService>().LoadAsync();
+        await Services.GetRequiredService<FlyoutService>().LoadAsync();
+
+        var updates = Services.GetRequiredService<UpdateService>();
+        await updates.LoadAsync();
+        // Checked in the background so a slow or unreachable network never
+        // delays startup.
+        CrashLog.FireAndForget(updates.CheckAsync(notify: true));
 
         _mainWindow = Services.GetRequiredService<MainWindow>();
         _mainWindow.Activate();
@@ -67,7 +74,7 @@ public partial class App : Application
 
         var settingsDirectory = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "BLight",
+            "Blight",
             "Blare");
 
         services.AddSingleton<AudioSessionManager>();
@@ -82,6 +89,8 @@ public partial class App : Application
         services.AddSingleton<ISettingsStore>(new JsonFileSettingsStore(settingsDirectory));
         services.AddSingleton<SessionVolumeStore>();
         services.AddSingleton<ConsentStore>();
+        services.AddSingleton<FlyoutService>();
+        services.AddSingleton<UpdateService>();
         services.AddSingleton<ThemeService>();
         services.AddSingleton<BackdropService>();
         services.AddSingleton(new AppPaths(settingsDirectory));

@@ -1,6 +1,6 @@
-using BLight.Blare.Core.Safety;
+using Blight.Blare.Core.Safety;
 
-namespace BLight.Blare.App.Services;
+namespace Blight.Blare.App.Services;
 
 /// <summary>
 /// Decides when listening counts as "loud" and for how long.

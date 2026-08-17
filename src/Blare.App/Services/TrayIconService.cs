@@ -1,6 +1,6 @@
 using System.Windows.Forms;
 
-namespace BLight.Blare.App.Services;
+namespace Blight.Blare.App.Services;
 
 /// <summary>
 /// WinUI 3 has no native tray API, so this wraps System.Windows.Forms.NotifyIcon

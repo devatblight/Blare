@@ -4,7 +4,7 @@ using Windows.Win32.Devices.Display;
 using Windows.Win32.Foundation;
 using Windows.Win32.Graphics.Gdi;
 
-namespace BLight.Blare.Audio.Devices;
+namespace Blight.Blare.Audio.Devices;
 
 public sealed record MonitorAudioControl(
     int Index,

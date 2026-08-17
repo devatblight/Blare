@@ -1,4 +1,4 @@
-namespace BLight.Blare.Core.Settings;
+namespace Blight.Blare.Core.Settings;
 
 /// <summary>
 /// Remembers the last volume the user set per app (keyed by a stable

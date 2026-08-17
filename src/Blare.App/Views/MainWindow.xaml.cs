@@ -1,10 +1,10 @@
-using BLight.Blare.App.Services;
-using BLight.Blare.App.Views;
+using Blight.Blare.App.Services;
+using Blight.Blare.App.Views;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 
-namespace BLight.Blare.App;
+namespace Blight.Blare.App;
 
 public sealed partial class MainWindow : Window
 {

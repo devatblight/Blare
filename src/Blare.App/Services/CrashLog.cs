@@ -1,4 +1,4 @@
-namespace BLight.Blare.App.Services;
+namespace Blight.Blare.App.Services;
 
 /// <summary>
 /// Appends unhandled exceptions to a local log file. Static and dependency-free
@@ -10,7 +10,7 @@ public static class CrashLog
 {
     public static string FilePath { get; } = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "BLight",
+        "Blight",
         "Blare",
         "crash.log");
 

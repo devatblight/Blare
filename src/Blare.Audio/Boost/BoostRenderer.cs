@@ -2,7 +2,7 @@ using System.Runtime.InteropServices;
 using Windows.Win32;
 using Windows.Win32.Media.Audio;
 
-namespace BLight.Blare.Audio.Boost;
+namespace Blight.Blare.Audio.Boost;
 
 /// <summary>
 /// Renders gained+limited float samples to the default output device via a

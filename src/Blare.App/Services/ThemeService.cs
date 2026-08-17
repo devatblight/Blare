@@ -1,7 +1,7 @@
-using BLight.Blare.Core.Settings;
+using Blight.Blare.Core.Settings;
 using Microsoft.UI.Xaml;
 
-namespace BLight.Blare.App.Services;
+namespace Blight.Blare.App.Services;
 
 public enum BlareTheme
 {

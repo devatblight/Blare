@@ -1,5 +1,5 @@
 <Page
-    x:Class="BLight.Blare.App.Views.SettingsPage"
+    x:Class="Blight.Blare.App.Views.SettingsPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:controls="using:CommunityToolkit.WinUI.Controls"
@@ -39,6 +39,55 @@
                 </ComboBox>
             </controls:SettingsCard>
 
+            <controls:SettingsExpander
+                Header="Flyout position"
+                Description="Where every message from Blare appears — boost notices, safety warnings, everything.">
+                <controls:SettingsExpander.HeaderIcon>
+                    <FontIcon Glyph="&#xE7C4;" />
+                </controls:SettingsExpander.HeaderIcon>
+
+                <TextBlock x:Name="FlyoutPositionLabel" VerticalAlignment="Center" Opacity="0.7" />
+
+                <controls:SettingsExpander.Items>
+                    <controls:SettingsCard HorizontalContentAlignment="Left" ContentAlignment="Left">
+                        <StackPanel Spacing="10">
+                            <!-- A mock display: pick the corner the flyout lives in. -->
+                            <Border
+                                Width="290"
+                                Height="176"
+                                CornerRadius="8"
+                                Padding="8"
+                                Background="{ThemeResource BlarePanelBackground}"
+                                BorderBrush="{ThemeResource BlareStripBorder}"
+                                BorderThickness="1">
+                                <Grid x:Name="PositionGrid" RowSpacing="6" ColumnSpacing="6">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="*" />
+                                        <RowDefinition Height="*" />
+                                        <RowDefinition Height="*" />
+                                    </Grid.RowDefinitions>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                </Grid>
+                            </Border>
+
+                            <!-- Monitor stand, so the mock reads as a screen -->
+                            <Border
+                                Width="70"
+                                Height="5"
+                                CornerRadius="3"
+                                HorizontalAlignment="Center"
+                                Background="{ThemeResource BlareStripBorder}" />
+
+                            <Button x:Name="PreviewFlyoutButton" Content="Show a test message" Click="OnPreviewFlyoutClick" />
+                        </StackPanel>
+                    </controls:SettingsCard>
+                </controls:SettingsExpander.Items>
+            </controls:SettingsExpander>
+
             <TextBlock Text="Safety" Style="{StaticResource BodyStrongTextBlockStyle}" Margin="0,24,0,4" />
 
             <controls:SettingsCard
@@ -69,9 +118,28 @@
                 Title="A note on measurement"
                 Message="Blare measures relative audio signal level, not actual sound pressure at your ears — it can't know your speaker or headphone volume." />
 
+            <TextBlock Text="Updates" Style="{StaticResource BodyStrongTextBlockStyle}" Margin="0,24,0,4" />
+
+            <controls:SettingsCard
+                x:Name="UpdateCard"
+                Header="Check for updates"
+                Description="The only time Blare uses the network. It asks GitHub for the latest release and nothing about you is sent.">
+                <controls:SettingsCard.HeaderIcon>
+                    <FontIcon Glyph="&#xE895;" />
+                </controls:SettingsCard.HeaderIcon>
+                <StackPanel Orientation="Horizontal" Spacing="10">
+                    <Button x:Name="CheckUpdatesButton" Content="Check now" Click="OnCheckUpdatesClick" />
+                    <ToggleSwitch
+                        x:Name="UpdateChecksToggle"
+                        OnContent="On"
+                        OffContent="Off"
+                        Toggled="OnUpdateChecksToggled" />
+                </StackPanel>
+            </controls:SettingsCard>
+
             <TextBlock Text="About" Style="{StaticResource BodyStrongTextBlockStyle}" Margin="0,24,0,4" />
 
-            <controls:SettingsExpander Header="Blare" Description="Per-app volume mixer with health safeguards, part of BLight">
+            <controls:SettingsExpander Header="Blare" Description="Per-app volume mixer with health safeguards, part of Blight">
                 <controls:SettingsExpander.HeaderIcon>
                     <FontIcon Glyph="&#xE946;" />
                 </controls:SettingsExpander.HeaderIcon>

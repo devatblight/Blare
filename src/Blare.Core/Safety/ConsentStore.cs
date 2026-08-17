@@ -1,6 +1,6 @@
-using BLight.Blare.Core.Settings;
+using Blight.Blare.Core.Settings;
 
-namespace BLight.Blare.Core.Safety;
+namespace Blight.Blare.Core.Safety;
 
 /// <summary>
 /// Persists <see cref="ConsentState"/> across restarts.

@@ -2,7 +2,7 @@ using Microsoft.UI.Xaml.Media.Imaging;
 using System.Runtime.InteropServices.WindowsRuntime;
 using Windows.Storage.Streams;
 
-namespace BLight.Blare.App.Services;
+namespace Blight.Blare.App.Services;
 
 /// <summary>
 /// Resolves a process's own icon to a WinUI-displayable <see cref="BitmapImage"/>,

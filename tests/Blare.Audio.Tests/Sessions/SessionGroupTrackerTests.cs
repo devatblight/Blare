@@ -1,4 +1,4 @@
-using BLight.Blare.Audio.Sessions;
+using Blight.Blare.Audio.Sessions;
 
 namespace Blare.Audio.Tests.Sessions;
 

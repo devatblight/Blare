@@ -1,9 +1,9 @@
-using BLight.Blare.App.ViewModels;
+using Blight.Blare.App.ViewModels;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 
-namespace BLight.Blare.App.Controls;
+namespace Blight.Blare.App.Controls;
 
 /// <summary>
 /// One app's channel strip: icon, spectrum meter, vertical fader with a

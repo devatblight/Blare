@@ -1,4 +1,4 @@
-namespace BLight.Blare.Core.Safety;
+namespace Blight.Blare.Core.Safety;
 
 /// <summary>
 /// Independent things a user can explicitly opt out of. Kept separate so

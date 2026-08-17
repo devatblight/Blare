@@ -1,4 +1,4 @@
-namespace BLight.Blare.Audio.Boost;
+namespace Blight.Blare.Audio.Boost;
 
 /// <summary>Applies a scalar linear gain to interleaved float samples in place.</summary>
 public static class GainProcessor

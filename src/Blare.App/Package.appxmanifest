@@ -7,15 +7,15 @@
     IgnorableNamespaces="uap mp rescap">
 
     <Identity
-        Name="BLight.Blare"
-        Publisher="CN=BLight"
+        Name="Blight.Blare"
+        Publisher="CN=Blight"
         Version="0.1.0.0" />
 
     <mp:PhoneIdentity PhoneProductId="00000000-0000-0000-0000-000000000000" PhonePublisherId="00000000-0000-0000-0000-000000000000" />
 
     <Properties>
         <DisplayName>Blare</DisplayName>
-        <PublisherDisplayName>BLight</PublisherDisplayName>
+        <PublisherDisplayName>Blight</PublisherDisplayName>
         <Logo>Assets\StoreLogo.png</Logo>
     </Properties>
 

@@ -1,6 +1,6 @@
 using Microsoft.UI.Xaml.Controls;
 
-namespace BLight.Blare.App.Views;
+namespace Blight.Blare.App.Views;
 
 /// <summary>
 /// The deliberately-frictioned opt-out dialog from the plan: both a

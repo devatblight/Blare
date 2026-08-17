@@ -1,4 +1,4 @@
-using BLight.Blare.Core.Settings;
+using Blight.Blare.Core.Settings;
 
 namespace Blare.Core.Tests.Settings;
 

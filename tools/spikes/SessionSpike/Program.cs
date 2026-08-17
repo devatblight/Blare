@@ -1,63 +1,63 @@
-using BLight.Blare.Audio.Devices;
+using Blight.Blare.Audio.Boost;
+using Blight.Blare.Audio.Sessions;
 
-// Spike: can Blare reach the volume control built into a display?
+// Spike: can boost work by ATTENUATING the original instead of muting it?
 //
-// Analog speakers on a 3.5mm jack have a purely analogue knob with no data path
-// back to the PC — unreachable by any software. Displays are different: they
-// expose speaker volume over DDC/CI as VCP register 0x62. This checks whether
-// this machine's monitors actually answer.
+// Muting is fatal — capture is applied after session volume, so a muted app
+// captures pure silence. But capture scales linearly with volume, so leaving
+// the original at a tiny level should still yield a usable signal that can be
+// amplified back up. The direct leak at that level should be inaudible next to
+// the boosted re-render.
+//
+// Checks: does a very low volume still capture real signal, and does the
+// captured level track the volume closely enough to compensate for exactly?
 
-var controller = new MonitorVolumeController();
-var controls = controller.GetControls();
+var manager = new AudioSessionManager();
+var capture = new ProcessLoopbackCapture();
 
-Console.WriteLine($"Found {controls.Count} physical display(s):\n");
+var target = manager.GetSessionsForDefaultDevice()
+    .Where(s => !s.IsSystemSoundsSession)
+    .OrderByDescending(s => s.PeakLevel)
+    .FirstOrDefault();
 
-foreach (var control in controls)
+if (target is null || target.PeakLevel <= 0.0001f)
 {
-    if (control.SupportsVolume)
+    Console.WriteLine("Nothing is producing audio — play something and re-run.");
+    return;
+}
+
+Console.WriteLine($"Target pid {target.ProcessId}, current peak {target.PeakLevel:F4}\n");
+
+var originalVolume = target.Volume;
+
+try
+{
+    Console.WriteLine("volume   captured peak   x50 headroom   usable?");
+    Console.WriteLine("------   -------------   ------------   -------");
+
+    foreach (var level in new[] { 1.0f, 0.10f, 0.05f, 0.02f, 0.01f })
     {
+        manager.SetMute(target.ProcessId, false);
+        manager.SetVolume(target.ProcessId, level);
+        await Task.Delay(500);
+
+        var result = await capture.CaptureAsync(target.ProcessId, TimeSpan.FromSeconds(2));
+
+        // What the signal looks like once scaled back up to unity.
+        var compensated = result.PeakAmplitude / level;
+        var usable = result.PeakAmplitude > 0.0001f;
+
         Console.WriteLine(
-            $"  [OK]   {control.Description,-28} volume {control.Volume}/{control.MaximumVolume} " +
-            $"({control.VolumePercent:F0}%)");
+            $"{level,6:P0}   {result.PeakAmplitude,13:F6}   {compensated,12:F4}   {(usable ? "yes" : "NO")}");
     }
-    else
-    {
-        Console.WriteLine($"  [no]   {control.Description,-28} no DDC/CI speaker volume");
-    }
+
+    Console.WriteLine();
+    Console.WriteLine("If the compensated column stays roughly constant, attenuate-and-amplify");
+    Console.WriteLine("reconstructs the original faithfully and boost is achievable this way.");
 }
-
-Console.WriteLine();
-
-var usable = controls.Where(c => c.SupportsVolume).ToList();
-if (usable.Count == 0)
+finally
 {
-    Console.WriteLine("No display reports a controllable speaker volume.");
-    Console.WriteLine("Either these monitors have no speakers, or DDC/CI is disabled in their OSD menu.");
-    return;
+    manager.SetVolume(target.ProcessId, originalVolume);
+    manager.SetMute(target.ProcessId, false);
+    Console.WriteLine($"\nRestored volume to {originalVolume:P0}.");
 }
-
-Console.WriteLine($"{usable.Count} display(s) expose a speaker volume Blare could show and control.");
-Console.WriteLine("Round-tripping the first one to confirm writes are honoured...");
-
-var target = usable[0];
-var original = target.VolumePercent;
-var probe = original >= 50 ? original - 10 : original + 10;
-
-if (!controller.TrySetVolumePercent(target.Description, probe))
-{
-    Console.WriteLine("  Write refused — this display reports volume but won't accept changes.");
-    return;
-}
-
-await Task.Delay(600);
-
-var after = controller.GetControls().First(c => c.Description == target.Description);
-Console.WriteLine($"  set {probe:F0}% -> reads back {after.VolumePercent:F0}%");
-
-controller.TrySetVolumePercent(target.Description, original);
-Console.WriteLine($"  restored to {original:F0}%");
-
-Console.WriteLine(
-    Math.Abs(after.VolumePercent - probe) <= 5
-        ? "\nCONFIRMED: display speaker volume is readable and writable."
-        : "\nPartial: the display accepted the write but reports a different value.");
