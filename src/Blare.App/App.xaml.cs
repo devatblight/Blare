@@ -97,6 +97,10 @@ public partial class App : Application
         Services.GetRequiredService<BreakReminder>().Start();
 
         _trayIcon = Services.GetRequiredService<TrayIconService>();
+
+        // Left-click gives the compact mixer, not the full window: turning one
+        // app down should not cost more than opening the Windows mixer does.
+        _trayIcon.MixerRequested += (_, _) => Services.GetRequiredService<TrayMixerWindow>().Toggle();
         _trayIcon.OpenRequested += (_, _) => _mainWindow.Activate();
         _trayIcon.MuteEverythingRequested += (_, _) => hotkeys.MuteEverything();
         _trayIcon.MuteForegroundRequested += (_, _) => hotkeys.ToggleMuteForeground();
@@ -140,6 +144,7 @@ public partial class App : Application
         services.AddSingleton<LimitsStore>();
         services.AddSingleton<SceneStore>();
         services.AddSingleton<BreakReminder>();
+        services.AddSingleton<TrayMixerWindow>();
         services.AddSingleton(new AppPaths(settingsDirectory));
         services.AddTransient<MainWindow>();
 

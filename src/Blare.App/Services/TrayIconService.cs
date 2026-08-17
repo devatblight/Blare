@@ -23,6 +23,10 @@ public sealed class TrayIconService : IDisposable
 {
     private readonly NotifyIcon _notifyIcon;
 
+    /// <summary>Left-click: the compact mixer.</summary>
+    public event EventHandler? MixerRequested;
+
+    /// <summary>The full window, from the menu.</summary>
     public event EventHandler? OpenRequested;
 
     public event EventHandler? ExitRequested;
@@ -54,7 +58,7 @@ public sealed class TrayIconService : IDisposable
             switch (e.Button)
             {
                 case MouseButtons.Left:
-                    OpenRequested?.Invoke(this, EventArgs.Empty);
+                    MixerRequested?.Invoke(this, EventArgs.Empty);
                     break;
                 case MouseButtons.Middle:
                     MuteForegroundRequested?.Invoke(this, EventArgs.Empty);
