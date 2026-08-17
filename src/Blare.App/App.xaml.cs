@@ -79,6 +79,7 @@ public partial class App : Application
 
         await Services.GetRequiredService<LimitsStore>().LoadAsync();
         await Services.GetRequiredService<SceneStore>().LoadAsync();
+        await Services.GetRequiredService<HearingHistory>().LoadAsync();
 
         // Hotkeys are registered once for the process, not per window, so they
         // keep working while Blare sits in the tray with no window at all.
@@ -145,6 +146,7 @@ public partial class App : Application
         services.AddSingleton<SceneStore>();
         services.AddSingleton<BreakReminder>();
         services.AddSingleton<TrayMixerWindow>();
+        services.AddSingleton<HearingHistory>();
         services.AddSingleton(new AppPaths(settingsDirectory));
         services.AddTransient<MainWindow>();
 

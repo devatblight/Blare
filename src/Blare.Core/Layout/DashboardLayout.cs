@@ -32,6 +32,9 @@ public enum CardKind
 
     /// <summary>Saved level sets, and a button to recall them.</summary>
     Scenes,
+
+    /// <summary>When listening was loud over the last day, hour by hour.</summary>
+    Exposure,
 }
 
 /// <summary>The span a card may occupy, in grid cells.</summary>
@@ -59,6 +62,7 @@ public static class CardSizing
         CardKind.QuickActions => new CardBounds(2, 2, 8, 6),
         CardKind.NowPlaying => new CardBounds(2, 2, 8, 4),
         CardKind.Scenes => new CardBounds(3, 3, 8, 10),
+        CardKind.Exposure => new CardBounds(4, 3, 12, 6),
         _ => new CardBounds(2, 2, 12, 12),
     };
 }

@@ -8,6 +8,7 @@ using Blight.Blare.Audio.Devices;
 using Blight.Blare.Audio.Sessions;
 using Blight.Blare.Core.Layout;
 using Blight.Blare.Core.Mixing;
+using Blight.Blare.Core.Safety;
 using Blight.Blare.Core.Scenes;
 using Blight.Blare.Core.Settings;
 using Microsoft.Extensions.DependencyInjection;
@@ -23,6 +24,9 @@ public sealed partial class MixerPage : Page
 {
     private const double CardGap = 8;
 
+    /// <summary>How often loudness is sampled. Also the amount of time one sample stands for in the exposure timeline.</summary>
+    private static readonly TimeSpan SafetySampleInterval = TimeSpan.FromSeconds(5);
+
     private readonly AudioSessionManager _sessionManager;
     private readonly AudioDeviceManager _deviceManager;
     private readonly MonitorVolumeController _monitorVolume;
@@ -34,6 +38,7 @@ public sealed partial class MixerPage : Page
     private readonly LimitsStore _limits;
     private readonly FlyoutService _flyout;
     private readonly SceneStore _scenes;
+    private readonly HearingHistory _history;
     private readonly SessionGroupTracker _groupTracker = new();
     private readonly IconResolver _iconResolver = new();
 
@@ -67,6 +72,8 @@ public sealed partial class MixerPage : Page
     private TextBlock? _nowPlayingText;
     private TextBlock? _nowPlayingDetail;
     private StackPanel? _scenesPanel;
+    private Grid? _exposureBars;
+    private TextBlock? _exposureSummary;
 
     private bool _suppressMasterVolumePush;
     private string? _masterDeviceId;
@@ -95,13 +102,14 @@ public sealed partial class MixerPage : Page
         _limits = App.Services.GetRequiredService<LimitsStore>();
         _flyout = App.Services.GetRequiredService<FlyoutService>();
         _scenes = App.Services.GetRequiredService<SceneStore>();
+        _history = App.Services.GetRequiredService<HearingHistory>();
         _bandScratch = new double[_spectrumMonitor.BandCount];
 
         InitializeComponent();
         BuildAddCardMenu();
         BuildDropPreview();
 
-        _safetyTimer = CreateTimer(TimeSpan.FromSeconds(5), RunSafetySample);
+        _safetyTimer = CreateTimer(SafetySampleInterval, RunSafetySample);
         // 30fps. The meter now only rewrites segments that actually changed, so
         // the extra frames cost little and buy visibly smoother ballistics.
         _meterTimer = CreateTimer(TimeSpan.FromMilliseconds(33), RefreshMeters);
@@ -178,6 +186,8 @@ public sealed partial class MixerPage : Page
         _stripsPanel = null;
         _emptyState = null;
         _scenesPanel = null;
+        _exposureBars = null;
+        _exposureSummary = null;
         _masterVolumeSlider = null;
         _warningCountText = null;
         _nowPlayingText = null;
@@ -459,6 +469,75 @@ public sealed partial class MixerPage : Page
         UpdateHeader();
     }
 
+    // ---- exposure ------------------------------------------------------------
+
+    /// <summary>Redraws the exposure bars. Cheap enough to run on every safety tick.</summary>
+    private void RefreshExposure()
+    {
+        if (_exposureBars is null)
+        {
+            return;
+        }
+
+        const int hoursShown = 24;
+
+        var now = DateTimeOffset.Now;
+        var buckets = _history.Timeline.Buckets.ToDictionary(bucket => bucket.Hour.ToLocalTime(), bucket => bucket.TimeLoud);
+
+        _exposureBars.Children.Clear();
+        _exposureBars.ColumnDefinitions.Clear();
+
+        for (var index = 0; index < hoursShown; index++)
+        {
+            _exposureBars.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+            var hour = new DateTimeOffset(now.Year, now.Month, now.Day, now.Hour, 0, 0, now.Offset)
+                .AddHours(index - (hoursShown - 1));
+
+            var loud = buckets.GetValueOrDefault(hour);
+
+            // Against the hour itself, so a full bar means the whole hour.
+            var fraction = Math.Clamp(loud.TotalMinutes / 60.0, 0, 1);
+
+            var track = new Border
+            {
+                CornerRadius = new CornerRadius(2),
+                Background = CardBrush("BlareMeterUnlit"),
+                Opacity = 0.3,
+                VerticalAlignment = VerticalAlignment.Stretch,
+            };
+
+            var fill = new Border
+            {
+                CornerRadius = new CornerRadius(2),
+                Background = CardBrush(fraction >= 0.75 ? "BlareMeterHigh" : fraction >= 0.35 ? "BlareMeterMid" : "BlareMeterLow"),
+                VerticalAlignment = VerticalAlignment.Bottom,
+                Height = Math.Max(fraction <= 0 ? 0 : 3, fraction * 54),
+            };
+
+            ToolTipService.SetToolTip(fill, $"{hour:HH:mm} — {loud.TotalMinutes:F0} min loud");
+
+            var cell = new Grid();
+            cell.Children.Add(track);
+            cell.Children.Add(fill);
+
+            Grid.SetColumn(cell, index);
+            _exposureBars.Children.Add(cell);
+        }
+
+        if (_exposureSummary is null)
+        {
+            return;
+        }
+
+        var total = _history.Timeline.TotalInWindow;
+        var stretch = _history.Timeline.LongestStretchHours();
+
+        _exposureSummary.Text = total <= TimeSpan.Zero
+            ? "Nothing loud in the last 24 hours."
+            : $"{total.TotalMinutes:F0} min loud over the last 24 hours, longest run {stretch}h. Relative level, not a measurement at your ears.";
+    }
+
     // ---- scenes --------------------------------------------------------------
 
     /// <summary>Captures every strip's level and mute under a name.</summary>
@@ -593,11 +672,13 @@ public sealed partial class MixerPage : Page
         if (ceiling is null)
         {
             _limits.Limits.ClearCap(key);
+            _history.Record(ProtectionEvent.CapCleared, viewModel.DisplayName);
             _flyout.Show(viewModel.DisplayName, "Limit removed.", FlyoutTone.Neutral, TimeSpan.FromSeconds(3));
             return;
         }
 
         _limits.Limits.SetCap(key, ceiling.Value);
+        _history.Record(ProtectionEvent.CapSet, $"{viewModel.DisplayName} at {ceiling:F0}%");
         _flyout.Show(viewModel.DisplayName, $"Never above {ceiling:F0}%.", FlyoutTone.Neutral, TimeSpan.FromSeconds(3));
 
         // Applies immediately rather than only next time the fader moves — a
@@ -730,10 +811,19 @@ public sealed partial class MixerPage : Page
         UpdateNowPlaying(peaksByApp);
 
         var masterVolume = _masterDeviceId is null ? 1.0 : _deviceManager.GetMasterVolume(_masterDeviceId);
+        var now = DateTimeOffset.UtcNow;
         var warned = _safetyMonitor.Sample(
-            peaksByApp.Select(pair => (pair.Key, pair.Value)), masterVolume, DateTimeOffset.UtcNow);
+            peaksByApp.Select(pair => (pair.Key, pair.Value)), masterVolume, now);
+
+        // One entry per tick for the machine as a whole, not per app: two apps
+        // playing loudly for a minute is still a minute of loud listening.
+        _history.RecordSample(
+            now,
+            peaksByApp.Values.Any(peak => _safetyMonitor.IsLoud(peak, masterVolume)),
+            SafetySampleInterval);
 
         UpdateStatusChips();
+        RefreshExposure();
 
         if (warned.Count == 0)
         {

@@ -29,6 +29,7 @@ public sealed partial class MixerPage
         CardKind.QuickActions => "Quick actions",
         CardKind.NowPlaying => "Loudest right now",
         CardKind.Scenes => "Scenes",
+        CardKind.Exposure => "Loud listening today",
         _ => kind.ToString(),
     };
 
@@ -42,8 +43,30 @@ public sealed partial class MixerPage
         CardKind.QuickActions => BuildQuickActionsCard(density),
         CardKind.NowPlaying => BuildNowPlayingCard(density),
         CardKind.Scenes => BuildScenesCard(),
+        CardKind.Exposure => BuildExposureCard(),
         _ => new TextBlock { Text = "Unknown card" },
     };
+
+    /// <summary>
+    /// A bar per hour of the last day, showing when listening was loud.
+    ///
+    /// A running total answers "how much" but not the question people act on:
+    /// whether it was one long stretch or scattered, and whether it is happening
+    /// late at night. Empty hours are drawn as an unlit bar so the shape of the
+    /// day is visible rather than implied by gaps.
+    /// </summary>
+    private UIElement BuildExposureCard()
+    {
+        _exposureBars = new Grid { ColumnSpacing = 2, MinHeight = 54, VerticalAlignment = VerticalAlignment.Stretch };
+        _exposureSummary = new TextBlock { FontSize = 11.5, Opacity = 0.6, TextWrapping = TextWrapping.Wrap };
+
+        var stack = new StackPanel { Spacing = 8 };
+        stack.Children.Add(_exposureBars);
+        stack.Children.Add(_exposureSummary);
+
+        RefreshExposure();
+        return stack;
+    }
 
     /// <summary>
     /// Saved level sets, and one click to put the desk back into one.
