@@ -43,21 +43,6 @@
                     MaxWidth="84" />
             </StackPanel>
 
-            <!-- Boost badge, only visible while a boost pipeline is actually running -->
-            <Border
-                x:Name="BoostBadge"
-                Grid.Row="1"
-                HorizontalAlignment="Center"
-                Padding="7,2"
-                CornerRadius="10"
-                Background="#33E85D3A"
-                Visibility="Collapsed">
-                <StackPanel Orientation="Horizontal" Spacing="3">
-                    <FontIcon Glyph="&#xEC48;" FontSize="9" Foreground="{ThemeResource BlareMeterHigh}" />
-                    <TextBlock Text="BOOST" FontSize="9" FontWeight="Bold" Foreground="{ThemeResource BlareMeterHigh}" />
-                </StackPanel>
-            </Border>
-
             <!-- Meter + fader side by side, like a real channel strip -->
             <Grid Grid.Row="2" ColumnSpacing="8" MinHeight="150">
                 <Grid.ColumnDefinitions>

@@ -28,7 +28,11 @@ public enum FlyoutTone
 public sealed partial class NotificationFlyoutWindow : Window
 {
     private const int FlyoutWidth = 400;
-    private const int MinimumFlyoutHeight = 92;
+    private const int MinimumFlyoutHeight = 76;
+
+    /// <summary>The message is capped at three lines, so anything taller than this means the measure went wrong.</summary>
+    private const int MaximumFlyoutHeight = 220;
+
     private const double SlideDistance = 14;
 
     /// <summary>Set from the measured content each time a message is shown — a fixed height clips longer messages.</summary>
@@ -62,6 +66,9 @@ public sealed partial class NotificationFlyoutWindow : Window
         var handle = WindowNative.GetWindowHandle(this);
         FlyoutWindowNative.MakePassive(handle);
         FlyoutWindowNative.RemoveSystemFrame(handle);
+
+        RootHost.PointerEntered += OnPointerEntered;
+        RootHost.PointerExited += OnPointerExited;
 
         AppWindow.Resize(new Windows.Graphics.SizeInt32(FlyoutWidth, MinimumFlyoutHeight));
 
@@ -114,6 +121,10 @@ public sealed partial class NotificationFlyoutWindow : Window
         CardTransform.Y = position.Row() == 2 ? SlideDistance : -SlideDistance;
         EnterStoryboard.Begin();
 
+        // DWM resets frame attributes when a window is shown, so the border has
+        // to be suppressed again on every appearance, not just at construction.
+        FlyoutWindowNative.RemoveSystemFrame(WindowNative.GetWindowHandle(this));
+
         _dismissTimer.Stop();
         _dismissTimer.Interval = duration;
         _dismissTimer.Start();
@@ -129,11 +140,18 @@ public sealed partial class NotificationFlyoutWindow : Window
     private void ResizeToContent()
     {
         var scale = Content?.XamlRoot?.RasterizationScale ?? 1.0;
+        var availableWidth = FlyoutWidth / scale;
 
-        RootHost.Measure(new Windows.Foundation.Size(FlyoutWidth / scale, double.PositiveInfinity));
+        // Measure against a fresh layout pass. Measuring straight after setting
+        // the text returns the previous message's size, which is what was
+        // clipping longer messages.
+        RootHost.InvalidateMeasure();
+        RootHost.Measure(new Windows.Foundation.Size(availableWidth, double.PositiveInfinity));
+        RootHost.UpdateLayout();
+        RootHost.Measure(new Windows.Foundation.Size(availableWidth, double.PositiveInfinity));
 
         var measured = (int)Math.Ceiling(RootHost.DesiredSize.Height * scale);
-        _flyoutHeight = Math.Max(MinimumFlyoutHeight, measured);
+        _flyoutHeight = Math.Clamp(measured, MinimumFlyoutHeight, MaximumFlyoutHeight);
 
         AppWindow.Resize(new Windows.Graphics.SizeInt32(FlyoutWidth, _flyoutHeight));
     }

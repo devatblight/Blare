@@ -1,15 +1,5 @@
 namespace Blight.Blare.Core.Safety;
 
-/// <summary>
-/// A gain/volume threshold past which an app counts as "hot" for tracking
-/// purposes. In Phase 1 this is checked against user-set volume; in Phase 2
-/// it's checked against boost gain.
-/// </summary>
-public sealed record BoostThreshold(double GainThresholdLinear)
-{
-    public static BoostThreshold Default => new(1.0);
-}
-
 public sealed record LoudnessSample(
     DateTimeOffset Timestamp,
     string AppKey,

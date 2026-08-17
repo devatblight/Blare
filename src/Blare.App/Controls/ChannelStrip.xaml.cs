@@ -76,7 +76,6 @@ public sealed partial class ChannelStrip : UserControl
 
         UpdateVolumeText();
         UpdateDangerZone();
-        UpdateBoostBadge();
     }
 
     public void SetLevels(ReadOnlySpan<double> levels) => Meter.SetLevels(levels);
@@ -92,9 +91,6 @@ public sealed partial class ChannelStrip : UserControl
         {
             case nameof(SessionRowViewModel.Icon):
                 AppIcon.Source = _viewModel.Icon;
-                break;
-            case nameof(SessionRowViewModel.IsBoosted):
-                UpdateBoostBadge();
                 break;
             case nameof(SessionRowViewModel.MaxVolumePercent):
                 VolumeSlider.Maximum = _viewModel.MaxVolumePercent;
@@ -150,10 +146,6 @@ public sealed partial class ChannelStrip : UserControl
             : (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["TextFillColorPrimaryBrush"];
     }
 
-    private void UpdateBoostBadge()
-    {
-        BoostBadge.Visibility = _viewModel?.IsBoosted == true ? Visibility.Visible : Visibility.Collapsed;
-    }
 
     private void UpdateDangerZone()
     {

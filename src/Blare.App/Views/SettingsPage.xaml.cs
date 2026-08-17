@@ -10,7 +10,6 @@ namespace Blight.Blare.App.Views;
 public sealed partial class SettingsPage : Page
 {
     private readonly SafetyMonitor _safetyMonitor;
-    private readonly BoostCoordinator _boostCoordinator;
     private readonly ThemeService _themeService;
     private readonly BackdropService _backdropService;
     private readonly FlyoutService _flyoutService;
@@ -22,7 +21,6 @@ public sealed partial class SettingsPage : Page
     public SettingsPage()
     {
         _safetyMonitor = App.Services.GetRequiredService<SafetyMonitor>();
-        _boostCoordinator = App.Services.GetRequiredService<BoostCoordinator>();
         _themeService = App.Services.GetRequiredService<ThemeService>();
         _backdropService = App.Services.GetRequiredService<BackdropService>();
         _flyoutService = App.Services.GetRequiredService<FlyoutService>();
@@ -49,7 +47,6 @@ public sealed partial class SettingsPage : Page
         _initializing = false;
 
         UpdateToggleWarningsButton();
-        UpdateRaiseCeilingButton();
     }
 
     private async void OnThemeChanged(object sender, SelectionChangedEventArgs e)
@@ -254,36 +251,5 @@ public sealed partial class SettingsPage : Page
         ToggleWarningsButton.Content = _safetyMonitor.WarningsDisabled(DateTimeOffset.UtcNow)
             ? "Re-enable"
             : "Disable";
-    }
-
-    private async void OnRaiseCeilingClick(object sender, RoutedEventArgs e)
-    {
-        var now = DateTimeOffset.UtcNow;
-
-        // Going back to the safe ceiling is always allowed without ceremony.
-        if (_boostCoordinator.CurrentCeilingPercent(now) >= BoostCoordinator.OverriddenCeilingPercent)
-        {
-            _boostCoordinator.RevokeCeilingOverride();
-            UpdateRaiseCeilingButton();
-            return;
-        }
-
-        var dialog = new RaiseBoostCeilingDialog { XamlRoot = XamlRoot };
-        var result = await dialog.ShowAsync();
-
-        if (result == ContentDialogResult.Primary)
-        {
-            _boostCoordinator.GrantCeilingOverride(now);
-            UpdateRaiseCeilingButton();
-        }
-    }
-
-    private void UpdateRaiseCeilingButton()
-    {
-        var allowed = _boostCoordinator.CurrentCeilingPercent(DateTimeOffset.UtcNow) >= BoostCoordinator.OverriddenCeilingPercent;
-
-        RaiseCeilingButton.Content = allowed ? "Back to 150% limit" : "Allow up to 300%";
-        BoostCeilingCard.Description =
-            $"How far past 100% a single app can be pushed. Boost always turns itself off after {BoostCoordinator.AutoDisableAfter.TotalMinutes:F0} minutes.";
     }
 }

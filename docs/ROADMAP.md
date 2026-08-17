@@ -36,7 +36,6 @@ here must present itself in relative terms and say so.
 | HEAR-07 | Per-app hard caps ("Discord never above 60%") | NEXT | 1 |
 | HEAR-08 | Headphone vs speaker profiles with separate thresholds | NEXT | 2 |
 | HEAR-09 | Startup loudness guard — catch apps opening at 100% | NEXT | 1 |
-| HEAR-10 | Transient spike protection (`Limiter` exists, needs a live path) | RESEARCH | 3 |
 | HEAR-11 | Weekly summary, generated locally | NEXT | 2 |
 | HEAR-12 | Protection audit log — when safeguards were off | NEXT | 1 |
 | HEAR-13 | Supervised mode — PIN-locked ceiling | NEXT | 2 |
@@ -78,22 +77,23 @@ The Raycast lane. Hotkeys acting on the *focused* app are what Windows cannot do
 
 ## DESK — Desk & level control
 
-True above-100% boost is **blocked**: per-process loopback capture is applied
-*after* session volume and mute, so silencing the original also silences the copy
-you would amplify. Measured — mute → captured peak 0.000000 (0.567 unmuted);
-volume 100/50/0% → 0.699/0.349/0.000.
+**Boost was removed.** It captured an app's audio, amplified it and rendered it
+back out. On a real machine Blare's own process ended up on the desk, so it
+captured its own output and re-rendered it in a feedback loop, producing a loud
+burst of noise through the speakers. A limiter caps amplitude but cannot help:
+a feedback loop pinned at the ceiling *is* the screech.
+
+The conclusion is not "add another guard". An app whose purpose is protecting
+hearing has no business being an audio source, so Blare no longer renders audio
+at all. Volume only goes down from unity, through the same Windows APIs the
+built-in mixer uses. DESK-05 through DESK-09 are withdrawn.
 
 | ID | Feature | Status | Effort |
 |----|---------|--------|--------|
-| DESK-01 | Relative focus boost — duck others, lift master | NEXT | 1 |
+| DESK-01 | Relative focus — duck others to make one app dominant | SHIPPED | 1 |
 | DESK-02 | Solo, restoring exact prior state | NEXT | 1 |
-| DESK-03 | Link strips (every Chromium renderer as one fader) | NEXT | 1 |
+| DESK-03 | Link strips (every Chromium renderer as one fader) | SHIPPED | 1 |
 | DESK-04 | Logarithmic fader taper | NEXT | 1 |
-| DESK-05 | True boost via endpoint redirection (`IPolicyConfig`, undocumented) | RESEARCH | 3 |
-| DESK-06 | True boost via virtual audio device (signed driver) | HEAVY | 3 |
-| DESK-07 | Per-app EQ — a health feature in audio clothing | HEAVY | 3 |
-| DESK-08 | Loudness matching across apps (relative) | HEAVY | 3 |
-| DESK-09 | Mono & balance per app (accessibility) | HEAVY | 3 |
 
 ## ROUTE — Routing & devices
 

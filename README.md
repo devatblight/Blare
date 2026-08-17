@@ -3,10 +3,15 @@
 A per-app volume mixer for Windows that watches what your listening is doing to
 your hearing.
 
-Windows only lets you turn app volumes down. Blare adds real above-100% boost,
-per-app frequency analysis, and — the part nothing else does — tracking of how
-long you've actually been listening loud, with protections that are deliberately
-awkward to switch off.
+Per-app volume, real per-app frequency analysis, and — the part nothing else
+does — tracking of how long you have actually been listening loud, with
+protections that are deliberately awkward to switch off.
+
+Blare never produces audio. It only turns existing streams down, through the
+same Windows APIs the built-in mixer uses. An earlier attempt at above-100%
+boost worked by capturing and re-rendering audio; it caused a loud burst of
+noise on a real machine and was removed. An app meant to protect hearing should
+not be an audio source.
 
 Part of the **Blight** umbrella.
 
@@ -47,7 +52,7 @@ dotnet test Blare.slnx
 | Project | What it holds |
 |---|---|
 | `src/Blare.Core` | Domain logic with no Windows dependency — safety tracking, consent, layout, settings. Where most tests live. |
-| `src/Blare.Audio` | All COM/WASAPI interop: sessions, devices, per-process capture, FFT, boost pipeline. |
+| `src/Blare.Audio` | All COM/WASAPI interop: sessions, devices, read-only per-process capture, FFT. |
 | `src/Blare.App` | The WinUI 3 app. |
 | `tools/spikes` | Throwaway harnesses used to verify audio behaviour against real hardware before building on it. |
 

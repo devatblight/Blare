@@ -34,7 +34,6 @@ public sealed partial class DiagnosticsPage : Page
         ("Output devices", 0xE7F5, "Every output Windows can see. The starred one is the default."),
         ("Live analysis", 0xE9D9, "Audio capture feeding the spectrum meters."),
         ("Hearing safety", 0xE7BA, "What Blare is tracking and which protections are in force."),
-        ("Boost", 0xEC48, "Why above-100% boost is currently unavailable."),
         ("App & storage", 0xE713, "Where Blare keeps its settings, and what it is running on."),
         ("Recent errors", 0xE783, "Problems Blare recorded. Empty is good."),
     ];
@@ -169,7 +168,6 @@ public sealed partial class DiagnosticsPage : Page
         Fill("Output devices", BuildDevices);
         Fill("Live analysis", BuildAnalysis);
         Fill("Hearing safety", body => BuildSafety(body, now));
-        Fill("Boost", body => BuildBoost(body, now));
         Fill("App & storage", BuildEnvironment);
         Fill("Recent errors", BuildErrors);
     }
@@ -345,30 +343,6 @@ public sealed partial class DiagnosticsPage : Page
             "loud on its own: Windows sets every app to 100% by default, and it only means the app " +
             "isn't being turned down. Silence never counts. This is a relative measure, not sound " +
             "pressure at your ears — Blare can't know your speaker or headphone volume."));
-    }
-
-    private static void BuildBoost(StackPanel body, DateTimeOffset now)
-    {
-        var boost = Service<BoostCoordinator>();
-
-        var anyBoosted = boost.AnyBoosted;
-
-        body.Children.Add(Pill(anyBoosted ? "BOOSTING" : "IDLE", anyBoosted ? "BlareMeterHigh" : "BlareMeterLow"));
-
-        body.Children.Add(Row("Volume ceiling", $"{boost.CurrentCeilingPercent(now):F0}%"));
-        body.Children.Add(Row("Apps boosted", boost.BoostedCount.ToString()));
-        body.Children.Add(Row("Turns off after", $"{BoostCoordinator.AutoDisableAfter.TotalMinutes:F0} minutes"));
-        body.Children.Add(Row(
-            "Original held at",
-            $"{Blight.Blare.Audio.Boost.BoostEngine.ResidualLevel:P0} while boosting"));
-
-        body.Children.Add(Note(
-            "Windows applies an app's volume before Blare captures it, so a muted app captures " +
-            "silence and can't be amplified — measured at 0.000000 muted against 0.567 unmuted. " +
-            "Boost therefore holds the original at a residual level rather than muting it, and " +
-            "multiplies the captured signal back up. What leaks through directly is about -34 dB " +
-            "below the boosted output. Every boost expires on its own so amplified audio can't " +
-            "run indefinitely."));
     }
 
     private static void BuildEnvironment(StackPanel body)

@@ -4,7 +4,7 @@ using Windows.Win32.Foundation;
 using Windows.Win32.Media.Audio;
 using Windows.Win32.System.Com.StructuredStorage;
 
-namespace Blight.Blare.Audio.Boost;
+namespace Blight.Blare.Audio.Analysis;
 
 /// <summary>
 /// Milestone-0 Spike B result (see plan §3): captures one process's
@@ -68,7 +68,7 @@ public sealed class ProcessLoopbackCapture
     /// <summary>
     /// Runs continuous capture, invoking <paramref name="onBlock"/> with each
     /// block's interleaved float samples until cancelled. Used by
-    /// <see cref="BoostEngine"/>, which passes <paramref name="sampleRateHz"/>/
+    /// the spectrum monitor, which passes <paramref name="sampleRateHz"/>/
     /// <paramref name="channels"/> matching the render device's actual mix
     /// format so the two legs of the pipeline agree on format without needing
     /// a resampler.

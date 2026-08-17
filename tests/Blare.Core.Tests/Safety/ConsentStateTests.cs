@@ -75,13 +75,4 @@ public class ConsentStateTests
         Assert.False(state.IsActive(ConsentKind.SafetyWarningsDisabled, Start));
     }
 
-    [Fact]
-    public void DifferentConsentKinds_AreTrackedIndependently()
-    {
-        var state = new ConsentState();
-        state.Grant(ConsentKind.SafetyWarningsDisabled, Start);
-
-        Assert.True(state.IsActive(ConsentKind.SafetyWarningsDisabled, Start));
-        Assert.False(state.IsActive(ConsentKind.SafeBoostCeilingOverride, Start));
-    }
 }

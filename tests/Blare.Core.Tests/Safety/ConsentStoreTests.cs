@@ -84,13 +84,13 @@ public class ConsentStoreTests
 
         var firstRun = new ConsentState();
         _ = new ConsentStore(backing, firstRun);
-        firstRun.Grant(ConsentKind.SafeBoostCeilingOverride, Start);
+        firstRun.Grant(ConsentKind.SafetyWarningsDisabled, Start);
 
         var secondRun = new ConsentState();
         var secondStore = new ConsentStore(backing, secondRun);
         await secondStore.LoadAsync();
 
-        Assert.True(secondRun.IsActive(ConsentKind.SafeBoostCeilingOverride, Start));
+        Assert.True(secondRun.IsActive(ConsentKind.SafetyWarningsDisabled, Start));
     }
 
     [Fact]
@@ -102,7 +102,7 @@ public class ConsentStoreTests
         await store.LoadAsync();
 
         Assert.False(state.IsActive(ConsentKind.SafetyWarningsDisabled, Start));
-        Assert.False(state.IsActive(ConsentKind.SafeBoostCeilingOverride, Start));
+        Assert.False(state.IsActive(ConsentKind.SafetyWarningsDisabled, Start));
     }
 
     [Fact]

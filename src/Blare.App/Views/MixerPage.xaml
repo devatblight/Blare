@@ -74,10 +74,6 @@
 
                 <!-- Inline status: small indicator dots, not KPI tiles -->
                 <StackPanel Orientation="Horizontal" Spacing="18">
-                    <StackPanel Orientation="Horizontal" Spacing="7" VerticalAlignment="Center">
-                        <Ellipse x:Name="BoostDot" Width="7" Height="7" Fill="{ThemeResource BlareMeterUnlit}" />
-                        <TextBlock x:Name="BoostedCountText" Text="no boost" FontSize="11.5" Opacity="0.8" />
-                    </StackPanel>
 
                     <StackPanel Orientation="Horizontal" Spacing="7" VerticalAlignment="Center">
                         <Ellipse x:Name="WarningDot" Width="7" Height="7" Fill="{ThemeResource BlareMeterUnlit}" />

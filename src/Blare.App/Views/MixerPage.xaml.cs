@@ -21,7 +21,7 @@ public sealed partial class MixerPage : Page
     private readonly AudioDeviceManager _deviceManager;
     private readonly SessionVolumeStore _volumeStore;
     private readonly SafetyMonitor _safetyMonitor;
-    private readonly BoostCoordinator _boostCoordinator;
+    private readonly VolumeCoordinator _volumeCoordinator;
     private readonly SpectrumMonitor _spectrumMonitor;
     private readonly MonitorVolumeController _monitorVolume;
     private readonly SessionGroupTracker _groupTracker = new();
@@ -51,7 +51,7 @@ public sealed partial class MixerPage : Page
         _deviceManager = App.Services.GetRequiredService<AudioDeviceManager>();
         _volumeStore = App.Services.GetRequiredService<SessionVolumeStore>();
         _safetyMonitor = App.Services.GetRequiredService<SafetyMonitor>();
-        _boostCoordinator = App.Services.GetRequiredService<BoostCoordinator>();
+        _volumeCoordinator = App.Services.GetRequiredService<VolumeCoordinator>();
         _spectrumMonitor = App.Services.GetRequiredService<SpectrumMonitor>();
         _monitorVolume = App.Services.GetRequiredService<MonitorVolumeController>();
         _bandScratch = new double[_spectrumMonitor.BandCount];
@@ -62,13 +62,9 @@ public sealed partial class MixerPage : Page
         _meterTimer = CreateTimer(TimeSpan.FromMilliseconds(50), RefreshMeters);
         _sessionTimer = CreateTimer(TimeSpan.FromSeconds(2), () => CrashLog.FireAndForget(RefreshSessionsAsync()));
 
-        // Boost lapses on its own after 30 minutes, or if its pipeline fails —
-        // the fader has to follow it back down rather than keep claiming 180%.
-        _boostCoordinator.BoostEnded += OnBoostEnded;
 
         Unloaded += (_, _) =>
         {
-            _boostCoordinator.BoostEnded -= OnBoostEnded;
             _safetyTimer.Stop();
             _meterTimer.Stop();
             _sessionTimer.Stop();
@@ -226,11 +222,9 @@ public sealed partial class MixerPage : Page
 
     private void UpdateStatusChips()
     {
-        var boosted = _boostCoordinator.BoostedCount;
         var warnings = _safetyMonitor.WarningCount;
         var minutesLoud = _safetyMonitor.TotalTimeAboveThreshold.TotalMinutes;
 
-        BoostedCountText.Text = boosted == 0 ? "no boost" : $"{boosted} boosted";
         WarningCountText.Text = warnings switch
         {
             0 => "no warnings",
@@ -240,7 +234,6 @@ public sealed partial class MixerPage : Page
         ExposureText.Text = $"{minutesLoud:F0}m loud today";
 
         // Dots only light when there's something to report, so a calm desk reads as calm.
-        BoostDot.Fill = BrushFor(boosted > 0 ? "BlareMeterHigh" : "BlareMeterUnlit");
         WarningDot.Fill = BrushFor(warnings > 0 ? "BlareMeterMid" : "BlareMeterUnlit");
         ExposureDot.Fill = BrushFor(minutesLoud >= 60 ? "BlareMeterMid" : minutesLoud > 0 ? "BlareMeterLow" : "BlareMeterUnlit");
     }
@@ -298,7 +291,7 @@ public sealed partial class MixerPage : Page
     public async Task RefreshSessionsAsync()
     {
         var now = DateTimeOffset.UtcNow;
-        var ceiling = _boostCoordinator.CurrentCeilingPercent(now);
+        var ceiling = VolumeCoordinator.MaximumPercent;
 
         var liveSessions = _sessionManager.GetSessionsForDefaultDevice()
             .Where(s => !s.IsSystemSoundsSession)
@@ -551,28 +544,11 @@ public sealed partial class MixerPage : Page
             case nameof(SessionRowViewModel.IsMuted):
                 foreach (var processId in ProcessesFor(viewModel))
                 {
-                    _sessionManager.SetMute(processId, viewModel.IsMuted);
+                    _volumeCoordinator.SetMute(processId, viewModel.IsMuted);
                 }
 
                 break;
         }
-    }
-
-    private void OnBoostEnded(object? sender, uint processId)
-    {
-        DispatcherQueue.TryEnqueue(() =>
-        {
-            var strip = _strips.Values.FirstOrDefault(s => s.ViewModel?.ProcessId == processId);
-
-            if (strip?.ViewModel is not { } viewModel)
-            {
-                return;
-            }
-
-            viewModel.VolumePercent = viewModel.LastUnboostedPercent;
-            viewModel.IsBoosted = false;
-            UpdateStatusChips();
-        });
     }
 
     private IReadOnlyList<uint> ProcessesFor(SessionRowViewModel viewModel) =>
@@ -590,27 +566,12 @@ public sealed partial class MixerPage : Page
             viewModel.IsMuted = false;
         }
 
-        var processes = ProcessesFor(viewModel);
-
-        // Boost captures and re-renders one stream, so it only ever targets the
-        // representative process; plain volume applies to all of them.
-        if (viewModel.VolumePercent > 100)
+        // Applies to every process behind the app, so a browser's renderers move together.
+        foreach (var processId in ProcessesFor(viewModel))
         {
-            _boostCoordinator.RememberName(viewModel.ProcessId, viewModel.DisplayName);
-            await _boostCoordinator.SetVolumePercentAsync(
-                viewModel.ProcessId, viewModel.VolumePercent, viewModel.LastUnboostedPercent);
-        }
-        else
-        {
-            viewModel.LastUnboostedPercent = viewModel.VolumePercent;
-
-            foreach (var processId in processes)
-            {
-                await _boostCoordinator.SetVolumePercentAsync(processId, viewModel.VolumePercent, viewModel.VolumePercent);
-            }
+            _volumeCoordinator.SetVolumePercent(processId, viewModel.VolumePercent);
         }
 
-        viewModel.IsBoosted = _boostCoordinator.IsBoosted(viewModel.ProcessId);
         UpdateStatusChips();
 
         if (!string.IsNullOrEmpty(viewModel.ExecutablePath))

@@ -1,5 +1,4 @@
 using System.Collections.Concurrent;
-using Blight.Blare.Audio.Boost;
 
 namespace Blight.Blare.Audio.Analysis;
 

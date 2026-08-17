@@ -15,18 +15,8 @@ public sealed record OutputDevice(
     string DisplayName,
     bool IsDefault);
 
-/// <summary>
-/// Level is 0.0-1.0 in Phase 1 (native ISimpleAudioVolume ceiling). Phase 2
-/// boost is tracked separately via <see cref="BoostState"/> rather than by
-/// letting Level exceed 1.0, so the two mechanisms can't be conflated.
-/// </summary>
+/// <summary>Level is 0.0-1.0, the range Windows' session volume accepts. There is no path above unity.</summary>
 public sealed record VolumeState(double Level, bool IsMuted)
 {
     public static VolumeState Unity => new(1.0, false);
-}
-
-/// <summary>GainLinear is 1.0 at unity; anything above 1.0 is a boost.</summary>
-public sealed record BoostState(bool IsBoosted, double GainLinear)
-{
-    public static BoostState None => new(false, 1.0);
 }

@@ -10,7 +10,6 @@ public sealed class SessionRowViewModel : INotifyPropertyChanged
     private double _maxVolumePercent = 150;
     private double _meterPercent;
     private bool _isMuted;
-    private bool _isBoosted;
     private BitmapImage? _icon;
 
     /// <summary>A representative process for this app — an app may be backed by several.</summary>
@@ -24,8 +23,6 @@ public sealed class SessionRowViewModel : INotifyPropertyChanged
     /// <summary>Stable identity used as the persistence key — empty when the process couldn't be resolved.</summary>
     public string ExecutablePath { get; set; } = string.Empty;
 
-    /// <summary>The level this app sat at before boost took over, so ending a boost restores it rather than leaving the residual attenuation in place.</summary>
-    public double LastUnboostedPercent { get; set; } = 100;
 
     public double VolumePercent
     {
@@ -53,12 +50,6 @@ public sealed class SessionRowViewModel : INotifyPropertyChanged
         set => SetField(ref _meterPercent, value);
     }
 
-    /// <summary>True while a Phase 2 boost pipeline is actually running for this app (not just "slider is above 100%").</summary>
-    public bool IsBoosted
-    {
-        get => _isBoosted;
-        set => SetField(ref _isBoosted, value);
-    }
 
     public BitmapImage? Icon
     {

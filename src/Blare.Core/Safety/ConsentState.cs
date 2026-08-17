@@ -8,7 +8,6 @@ namespace Blight.Blare.Core.Safety;
 public enum ConsentKind
 {
     SafetyWarningsDisabled,
-    SafeBoostCeilingOverride,
 }
 
 public sealed record ConsentRecord(
