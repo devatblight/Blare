@@ -117,22 +117,31 @@ jobs:
           & "${{ steps.msbuild.outputs.path }}" src/Blare.App/Blare.App.csproj `
             /p:Configuration=Release /p:Platform=x64 `
             /p:Version=${{ steps.version.outputs.version }} `
+            /p:RuntimeIdentifier=win-x64 /p:SelfContained=true `
             /p:WindowsPackageType=MSIX `
             /p:GenerateAppxPackageOnBuild=true `
             /p:AppxBundle=Never `
             /p:UapAppxPackageBuildMode=SideloadOnly `
-            /p:AppxPackageSigningEnabled=false
+            /p:AppxPackageSigningEnabled=false `
+            "/p:AppxPackageDir=$(Join-Path $PWD 'artifacts/msix')\"
 
       - name: Collect MSIX
         shell: pwsh
         run: |
-          $msix = Get-ChildItem -Recurse -Filter *.msix src/Blare.App/obj |
-            Sort-Object LastWriteTime -Descending | Select-Object -First 1
-          if ($msix) {
-            Copy-Item $msix.FullName "artifacts/out/Blare-${{ steps.version.outputs.version }}-x64.msix"
-          } else {
-            Write-Warning "No MSIX produced; publishing the portable build only."
+          # Match the app package by name. A plain "newest .msix" search picks up
+          # Main.msix and Singleton.msix, which are the Windows App Runtime
+          # dependency packages — installing one of those installs the runtime,
+          # not Blare, which is exactly what shipped in 0.1.0.
+          $msix = Get-ChildItem -Recurse -Filter 'Blare.App_*.msix' artifacts/msix -ErrorAction SilentlyContinue |
+            Sort-Object Length -Descending | Select-Object -First 1
+
+          if (-not $msix) {
+            Write-Warning "No app MSIX produced; publishing the portable build only."
+            exit 0
           }
+
+          Copy-Item $msix.FullName "artifacts/out/Blare-${{ steps.version.outputs.version }}-x64.msix"
+          Write-Host "Collected $($msix.Name) ($([math]::Round($msix.Length/1MB,1)) MB)"
 
       - uses: actions/upload-artifact@v4
         with:
