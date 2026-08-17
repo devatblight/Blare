@@ -13,7 +13,11 @@ public sealed class SessionRowViewModel : INotifyPropertyChanged
     private bool _isBoosted;
     private BitmapImage? _icon;
 
+    /// <summary>A representative process for this app — an app may be backed by several.</summary>
     public uint ProcessId { get; set; }
+
+    /// <summary>Stable grouping key for the app this strip represents.</summary>
+    public string AppKey { get; set; } = string.Empty;
 
     public string DisplayName { get; set; } = string.Empty;
 

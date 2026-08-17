@@ -104,15 +104,33 @@
                 FontFamily="Consolas"
                 HorizontalAlignment="Center" />
 
-            <ToggleButton
-                x:Name="MuteButton"
-                Grid.Row="4"
-                HorizontalAlignment="Stretch"
-                Padding="0,4"
-                Checked="OnMuteToggled"
-                Unchecked="OnMuteToggled">
-                <FontIcon x:Name="MuteIcon" Glyph="&#xE767;" FontSize="14" />
-            </ToggleButton>
+            <Grid Grid.Row="4" ColumnSpacing="6">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <ToggleButton
+                    x:Name="MuteButton"
+                    Grid.Column="0"
+                    HorizontalAlignment="Stretch"
+                    Padding="0,4"
+                    ToolTipService.ToolTip="Mute"
+                    Checked="OnMuteToggled"
+                    Unchecked="OnMuteToggled">
+                    <FontIcon x:Name="MuteIcon" Glyph="&#xE767;" FontSize="14" />
+                </ToggleButton>
+
+                <ToggleButton
+                    x:Name="FocusButton"
+                    Grid.Column="1"
+                    HorizontalAlignment="Stretch"
+                    Padding="0,4"
+                    ToolTipService.ToolTip="Focus this app and duck everything else"
+                    Click="OnFocusClicked">
+                    <FontIcon Glyph="&#xE71E;" FontSize="14" />
+                </ToggleButton>
+            </Grid>
         </Grid>
     </Border>
 </UserControl>

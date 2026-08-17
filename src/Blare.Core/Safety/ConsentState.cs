@@ -38,10 +38,28 @@ public sealed class ConsentState
         _reconfirmationInterval = reconfirmationInterval ?? TimeSpan.FromDays(30);
     }
 
+    public TimeSpan ReconfirmationInterval => _reconfirmationInterval;
+
+    /// <summary>Raised whenever a record changes, so the host can persist it. Consent that isn't durable isn't consent — an opt-out that silently resets on restart would make the re-confirmation interval meaningless.</summary>
+    public event EventHandler? Changed;
+
+    /// <summary>All current records, for persistence and for the diagnostics view.</summary>
+    public IReadOnlyCollection<ConsentRecord> Records => _records.Values;
+
+    /// <summary>Restores previously saved records. Does not raise <see cref="Changed"/> — loading isn't a user decision.</summary>
+    public void Restore(IEnumerable<ConsentRecord> records)
+    {
+        foreach (var record in records)
+        {
+            _records[record.Kind] = record;
+        }
+    }
+
     public ConsentRecord Grant(ConsentKind kind, DateTimeOffset now)
     {
         var record = new ConsentRecord(kind, IsActive: true, ConfirmedAt: now, LastReconfirmedAt: now);
         _records[kind] = record;
+        Changed?.Invoke(this, EventArgs.Empty);
         return record;
     }
 
@@ -49,7 +67,19 @@ public sealed class ConsentState
     {
         var record = ConsentRecord.NotGranted(kind);
         _records[kind] = record;
+        Changed?.Invoke(this, EventArgs.Empty);
         return record;
+    }
+
+    /// <summary>How long until this opt-out lapses back to the safe default, or null when it isn't active.</summary>
+    public TimeSpan? TimeUntilExpiry(ConsentKind kind, DateTimeOffset now)
+    {
+        if (!IsActive(kind, now) || _records[kind].LastReconfirmedAt is not { } lastConfirmed)
+        {
+            return null;
+        }
+
+        return lastConfirmed + _reconfirmationInterval - now;
     }
 
     /// <summary>Whether this opt-out is still in effect right now — false once it has expired.</summary>

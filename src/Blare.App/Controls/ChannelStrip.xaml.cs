@@ -29,6 +29,30 @@ public sealed partial class ChannelStrip : UserControl
 
     public SessionRowViewModel? ViewModel => _viewModel;
 
+    /// <summary>Raised when the user asks for this app to be the focused one.</summary>
+    public event EventHandler<string>? FocusRequested;
+
+    public void SetFocused(bool isFocused)
+    {
+        _suppressPush = true;
+        FocusButton.IsChecked = isFocused;
+        _suppressPush = false;
+
+        StripBorder.BorderBrush = isFocused
+            ? (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["BlareAccent"]
+            : (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["BlareStripBorder"];
+    }
+
+    private void OnFocusClicked(object sender, RoutedEventArgs e)
+    {
+        if (_suppressPush || _viewModel is null)
+        {
+            return;
+        }
+
+        FocusRequested?.Invoke(this, _viewModel.AppKey);
+    }
+
     public void Bind(SessionRowViewModel viewModel)
     {
         if (_viewModel is not null)

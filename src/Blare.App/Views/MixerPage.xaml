@@ -113,6 +113,17 @@
             IsOpen="False"
             CornerRadius="8" />
 
+        <InfoBar
+            x:Name="FocusBanner"
+            Grid.Row="2"
+            VerticalAlignment="Top"
+            Severity="Informational"
+            Title="Focus mode"
+            IsOpen="False"
+            IsClosable="True"
+            CloseButtonClick="OnFocusBannerClosed"
+            CornerRadius="8" />
+
         <!-- The desk itself: one strip per app, scrolling horizontally -->
         <ScrollViewer
             Grid.Row="2"

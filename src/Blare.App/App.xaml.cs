@@ -24,8 +24,10 @@ public partial class App : Application
 
     protected override async void OnLaunched(LaunchActivatedEventArgs args)
     {
-        // Theme resources must exist before any page that references them loads.
+        // Theme resources must exist before any page that references them loads,
+        // and consent must be restored before anything can read a safety state.
         await Services.GetRequiredService<ThemeService>().LoadAsync();
+        await Services.GetRequiredService<ConsentStore>().LoadAsync();
 
         _mainWindow = Services.GetRequiredService<MainWindow>();
         _mainWindow.Activate();
@@ -59,7 +61,9 @@ public partial class App : Application
         services.AddSingleton<TrayIconService>();
         services.AddSingleton<ISettingsStore>(new JsonFileSettingsStore(settingsDirectory));
         services.AddSingleton<SessionVolumeStore>();
+        services.AddSingleton<ConsentStore>();
         services.AddSingleton<ThemeService>();
+        services.AddSingleton(new AppPaths(settingsDirectory));
         services.AddTransient<MainWindow>();
 
         return services.BuildServiceProvider();
