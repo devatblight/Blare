@@ -24,6 +24,9 @@ public sealed class SpectrumMonitor : IDisposable
 
     public int BandCount => _bandCount;
 
+    /// <summary>Processes currently being captured. Surfaced in Diagnostics so live capture streams are never invisible.</summary>
+    public IReadOnlyCollection<uint> WatchedProcesses => _watches.Keys.ToList();
+
     /// <summary>Begins watching a process. Safe to call repeatedly for an already-watched process.</summary>
     public void Watch(uint processId)
     {

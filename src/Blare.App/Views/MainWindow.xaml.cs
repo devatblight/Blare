@@ -60,6 +60,7 @@ public sealed partial class MainWindow : Window
     private static Type PageTypeFor(string? tag) => tag switch
     {
         "settings" => typeof(SettingsPage),
+        "diagnostics" => typeof(DiagnosticsPage),
         _ => typeof(MixerPage),
     };
 
