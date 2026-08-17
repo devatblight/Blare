@@ -85,14 +85,23 @@ jobs:
       - name: Publish (unpackaged, portable)
         shell: pwsh
         run: |
+          # PublishDir must be absolute: MSBuild resolves a relative one against
+          # the project directory, not the repository root.
+          $publishDir = Join-Path $PWD 'artifacts/portable'
+          New-Item -ItemType Directory -Force $publishDir | Out-Null
+
           & "${{ steps.msbuild.outputs.path }}" src/Blare.App/Blare.App.csproj `
             /t:Restore`;Publish `
             /p:Configuration=Release /p:Platform=x64 `
             /p:RuntimeIdentifier=win-x64 /p:SelfContained=true `
             /p:WindowsPackageType=None `
             /p:Version=${{ steps.version.outputs.version }} `
-            /p:PublishDir=artifacts/portable/ `
+            "/p:PublishDir=$publishDir\" `
             /verbosity:minimal
+
+          if (-not (Get-ChildItem $publishDir -File -ErrorAction SilentlyContinue)) {
+            throw "Publish produced no files in $publishDir"
+          }
 
       - name: Package portable zip
         shell: pwsh
