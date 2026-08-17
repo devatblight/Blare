@@ -35,6 +35,12 @@ public enum CardKind
 
     /// <summary>When listening was loud over the last day, hour by hour.</summary>
     Exposure,
+
+    /// <summary>How much of today's self-set loud-listening allowance is gone.</summary>
+    ListeningBudget,
+
+    /// <summary>Fade everything out over a set time, for falling asleep to.</summary>
+    SleepTimer,
 }
 
 /// <summary>The span a card may occupy, in grid cells.</summary>
@@ -63,6 +69,8 @@ public static class CardSizing
         CardKind.NowPlaying => new CardBounds(2, 2, 8, 4),
         CardKind.Scenes => new CardBounds(3, 3, 8, 10),
         CardKind.Exposure => new CardBounds(4, 3, 12, 6),
+        CardKind.ListeningBudget => new CardBounds(3, 4, 6, 8),
+        CardKind.SleepTimer => new CardBounds(3, 3, 6, 8),
         _ => new CardBounds(2, 2, 12, 12),
     };
 }

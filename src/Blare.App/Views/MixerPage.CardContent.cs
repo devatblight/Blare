@@ -30,6 +30,8 @@ public sealed partial class MixerPage
         CardKind.NowPlaying => "Loudest right now",
         CardKind.Scenes => "Scenes",
         CardKind.Exposure => "Loud listening today",
+        CardKind.ListeningBudget => "Today's budget",
+        CardKind.SleepTimer => "Sleep timer",
         _ => kind.ToString(),
     };
 
@@ -44,8 +46,72 @@ public sealed partial class MixerPage
         CardKind.NowPlaying => BuildNowPlayingCard(density),
         CardKind.Scenes => BuildScenesCard(),
         CardKind.Exposure => BuildExposureCard(),
+        CardKind.ListeningBudget => BuildBudgetCard(),
+        CardKind.SleepTimer => BuildSleepTimerCard(),
         _ => new TextBlock { Text = "Unknown card" },
     };
+
+    /// <summary>
+    /// Start a fade-to-silence, or see how long is left.
+    ///
+    /// The preset durations are the ones people actually use; anything finer
+    /// than fifteen minutes is a stopwatch, not a sleep timer.
+    /// </summary>
+    private UIElement BuildSleepTimerCard()
+    {
+        _sleepButtons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+
+        foreach (var minutes in new[] { 15, 30, 60, 90 })
+        {
+            var button = new Button
+            {
+                Content = new TextBlock { Text = $"{minutes}m", FontSize = 12 },
+                Padding = new Thickness(10, 5, 10, 5),
+            };
+
+            button.Click += (_, _) => _sleepTimer.Start(TimeSpan.FromMinutes(minutes));
+            _sleepButtons.Children.Add(button);
+        }
+
+        _sleepStatus = new TextBlock { FontSize = 11.5, Opacity = 0.6, TextWrapping = TextWrapping.Wrap };
+
+        _sleepCancel = new Button
+        {
+            Content = "Cancel",
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            Visibility = Visibility.Collapsed,
+        };
+
+        _sleepCancel.Click += (_, _) => _sleepTimer.Cancel();
+
+        var stack = new StackPanel { Spacing = 8 };
+        stack.Children.Add(_sleepButtons);
+        stack.Children.Add(_sleepStatus);
+        stack.Children.Add(_sleepCancel);
+
+        RefreshSleepTimer();
+        return stack;
+    }
+
+    private UIElement BuildBudgetCard()
+    {
+        _budgetRing = new BudgetRing { MinHeight = 96, MinWidth = 96 };
+        _budgetCaption = new TextBlock
+        {
+            FontSize = 11.5,
+            Opacity = 0.6,
+            TextWrapping = TextWrapping.Wrap,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            TextAlignment = TextAlignment.Center,
+        };
+
+        var stack = new StackPanel { Spacing = 8 };
+        stack.Children.Add(_budgetRing);
+        stack.Children.Add(_budgetCaption);
+
+        RefreshBudget();
+        return stack;
+    }
 
     /// <summary>
     /// A bar per hour of the last day, showing when listening was loud.

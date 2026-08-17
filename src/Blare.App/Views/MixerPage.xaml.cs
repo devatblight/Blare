@@ -39,6 +39,7 @@ public sealed partial class MixerPage : Page
     private readonly FlyoutService _flyout;
     private readonly SceneStore _scenes;
     private readonly HearingHistory _history;
+    private readonly SleepTimer _sleepTimer;
     private readonly SessionGroupTracker _groupTracker = new();
     private readonly IconResolver _iconResolver = new();
 
@@ -74,6 +75,11 @@ public sealed partial class MixerPage : Page
     private StackPanel? _scenesPanel;
     private Grid? _exposureBars;
     private TextBlock? _exposureSummary;
+    private BudgetRing? _budgetRing;
+    private TextBlock? _budgetCaption;
+    private StackPanel? _sleepButtons;
+    private TextBlock? _sleepStatus;
+    private Button? _sleepCancel;
 
     private bool _suppressMasterVolumePush;
     private string? _masterDeviceId;
@@ -103,6 +109,8 @@ public sealed partial class MixerPage : Page
         _flyout = App.Services.GetRequiredService<FlyoutService>();
         _scenes = App.Services.GetRequiredService<SceneStore>();
         _history = App.Services.GetRequiredService<HearingHistory>();
+        _sleepTimer = App.Services.GetRequiredService<SleepTimer>();
+        _sleepTimer.Ticked += (_, _) => RefreshSleepTimer();
         _bandScratch = new double[_spectrumMonitor.BandCount];
 
         InitializeComponent();
@@ -188,6 +196,11 @@ public sealed partial class MixerPage : Page
         _scenesPanel = null;
         _exposureBars = null;
         _exposureSummary = null;
+        _budgetRing = null;
+        _budgetCaption = null;
+        _sleepButtons = null;
+        _sleepStatus = null;
+        _sleepCancel = null;
         _masterVolumeSlider = null;
         _warningCountText = null;
         _nowPlayingText = null;
@@ -467,6 +480,80 @@ public sealed partial class MixerPage : Page
 
         _soloedAppKey = appKey;
         UpdateHeader();
+    }
+
+    // ---- sleep timer ---------------------------------------------------------
+
+    private void RefreshSleepTimer()
+    {
+        if (_sleepStatus is null)
+        {
+            return;
+        }
+
+        if (!_sleepTimer.IsRunning)
+        {
+            _sleepStatus.Text = "Fades everything out, then stops. Pick how long.";
+
+            if (_sleepButtons is not null)
+            {
+                Motion.ToggleLayer(_sleepButtons, true, Motion.Normal);
+            }
+
+            if (_sleepCancel is not null)
+            {
+                Motion.ToggleLayer(_sleepCancel, false, Motion.Normal);
+            }
+
+            return;
+        }
+
+        var remaining = _sleepTimer.Remaining;
+
+        _sleepStatus.Text = remaining < TimeSpan.FromMinutes(5)
+            ? $"Fading out — {remaining.TotalSeconds:F0}s left."
+            : $"{remaining.TotalMinutes:F0} min left. The last 5 fade out.";
+
+        if (_sleepButtons is not null)
+        {
+            Motion.ToggleLayer(_sleepButtons, false, Motion.Normal);
+        }
+
+        if (_sleepCancel is not null)
+        {
+            Motion.ToggleLayer(_sleepCancel, true, Motion.Normal);
+        }
+    }
+
+    // ---- budget --------------------------------------------------------------
+
+    private void RefreshBudget()
+    {
+        if (_budgetRing is null)
+        {
+            return;
+        }
+
+        var used = _history.Timeline.TotalInWindow;
+        var budget = _history.Budget;
+        var state = budget.StateFor(used);
+
+        _budgetRing.SetBrushes(
+            BrushFor("BlareMeterUnlit"),
+            BrushFor(state switch
+            {
+                BudgetState.Exceeded => "BlareMeterHigh",
+                BudgetState.Nearing => "BlareMeterMid",
+                _ => "BlareMeterLow",
+            }));
+
+        _budgetRing.Caption = $"{budget.FractionUsed(used) * 100:F0}%";
+        _budgetRing.AnimateTo(budget.FractionUsed(used));
+
+        if (_budgetCaption is not null)
+        {
+            _budgetCaption.Text = budget.Describe(used);
+        }
     }
 
     // ---- exposure ------------------------------------------------------------
@@ -824,6 +911,7 @@ public sealed partial class MixerPage : Page
 
         UpdateStatusChips();
         RefreshExposure();
+        RefreshBudget();
 
         if (warned.Count == 0)
         {

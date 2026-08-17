@@ -38,6 +38,9 @@ public sealed class HearingHistory
 
     public ProtectionAudit Audit { get; } = new();
 
+    /// <summary>The user's self-set daily allowance of loud listening.</summary>
+    public ListeningBudget Budget { get; set; } = ListeningBudget.Default;
+
     public async Task LoadAsync(CancellationToken cancellationToken = default)
     {
         var timeline = await _store.LoadAsync<SavedTimeline>(TimelineKey, cancellationToken);

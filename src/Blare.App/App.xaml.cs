@@ -147,6 +147,7 @@ public partial class App : Application
         services.AddSingleton<BreakReminder>();
         services.AddSingleton<TrayMixerWindow>();
         services.AddSingleton<HearingHistory>();
+        services.AddSingleton<SleepTimer>();
         services.AddSingleton(new AppPaths(settingsDirectory));
         services.AddTransient<MainWindow>();
 
