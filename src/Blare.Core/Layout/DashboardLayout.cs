@@ -107,15 +107,26 @@ public sealed class DashboardLayout
 
     public DashboardCard? Get(string id) => _cards.FirstOrDefault(c => c.Id == id);
 
-    /// <summary>The arrangement shipped out of the box, and what "Reset layout" restores.</summary>
+    /// <summary>
+    /// The arrangement shipped out of the box, and what "Reset layout" restores.
+    ///
+    /// The mixer is the product, so it gets the room: three quarters of the width
+    /// and the full height, with everything else in a narrow column beside it.
+    /// The previous layout spread four cards across the top and left the strips a
+    /// band at the bottom, which read as a wall of small panels competing for
+    /// attention rather than a mixing desk with its readouts to one side.
+    /// </summary>
     public static DashboardLayout CreateDefault()
     {
         var layout = new DashboardLayout();
 
-        layout.Add(new DashboardCard("master", CardKind.MasterOutput, 0, 0, 5, 3));
-        layout.Add(new DashboardCard("status", CardKind.HearingStatus, 5, 0, 4, 3));
-        layout.Add(new DashboardCard("actions", CardKind.QuickActions, 9, 0, 3, 3));
-        layout.Add(new DashboardCard("mixer", CardKind.AppMixer, 0, 3, 12, 9));
+        layout.Add(new DashboardCard("mixer", CardKind.AppMixer, 0, 0, 9, 12));
+
+        // The sidebar, top to bottom in the order they are worth glancing at.
+        layout.Add(new DashboardCard("master", CardKind.MasterOutput, 9, 0, 3, 2));
+        layout.Add(new DashboardCard("status", CardKind.HearingStatus, 9, 2, 3, 3));
+        layout.Add(new DashboardCard("actions", CardKind.QuickActions, 9, 5, 3, 4));
+        layout.Add(new DashboardCard("playing", CardKind.NowPlaying, 9, 9, 3, 3));
 
         return layout;
     }

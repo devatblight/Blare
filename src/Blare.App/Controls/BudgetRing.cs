@@ -1,7 +1,7 @@
+using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
-using Microsoft.UI.Xaml.Media.Animation;
 using Windows.Foundation;
 
 // Both Shapes.Path and System.IO.Path are in scope through the implicit usings.
@@ -28,6 +28,8 @@ public sealed class BudgetRing : UserControl
     private readonly Path _track = new();
     private readonly Path _fill = new();
     private readonly TextBlock _caption = new();
+
+    private DispatcherQueueTimer? _tween;
 
     public BudgetRing()
     {
@@ -80,37 +82,54 @@ public sealed class BudgetRing : UserControl
         _caption.Foreground = fill;
     }
 
-    /// <summary>Eases to a new value instead of snapping, so the ring reads as something that moves.</summary>
+    /// <summary>
+    /// Eases to a new value instead of snapping, so the ring reads as something
+    /// that moves.
+    ///
+    /// Stepped by a timer rather than a Storyboard: WinUI cannot resolve a
+    /// custom dependency property by name from code, so animating this one threw
+    /// "Cannot resolve TargetProperty Value" the moment the card was added. The
+    /// tween is a dozen ticks over half a second, which is cheaper than the
+    /// animation machinery it replaces anyway.
+    /// </summary>
     public void AnimateTo(double value)
     {
         var target = Math.Clamp(value, 0, 1);
 
-        if (Motion.Reduced)
+        _tween?.Stop();
+        _tween = null;
+
+        var queue = DispatcherQueue.GetForCurrentThread();
+
+        if (Motion.Reduced || queue is null || Math.Abs(target - Value) < 0.005)
         {
             Value = target;
             return;
         }
 
-        var animation = new DoubleAnimation
+        var from = Value;
+        var step = 0;
+        const int steps = 14;
+
+        _tween = queue.CreateTimer();
+        _tween.Interval = TimeSpan.FromMilliseconds(40);
+        _tween.Tick += (timer, _) =>
         {
-            To = target,
-            Duration = TimeSpan.FromMilliseconds(600),
-            EnableDependentAnimation = true,
-            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
+            step++;
+
+            var progress = Math.Min(1, step / (double)steps);
+            var eased = 1 - Math.Pow(1 - progress, 3);
+
+            Value = from + ((target - from) * eased);
+
+            if (progress >= 1)
+            {
+                timer.Stop();
+                Value = target;
+            }
         };
 
-        Storyboard.SetTarget(animation, this);
-        Storyboard.SetTargetProperty(animation, "Value");
-
-        var storyboard = new Storyboard();
-        storyboard.Children.Add(animation);
-        storyboard.Completed += (_, _) =>
-        {
-            storyboard.Stop();
-            Value = target;
-        };
-
-        storyboard.Begin();
+        _tween.Start();
     }
 
     private void Redraw()

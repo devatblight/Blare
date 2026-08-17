@@ -199,14 +199,43 @@ public class DashboardLayoutTests
     }
 
     [Fact]
-    public void DefaultLayout_GivesTheMixerMostOfTheHeight()
+    public void DefaultLayout_MakesTheMixerTheCentrepiece()
     {
-        // The complaint this answers: full-width sliders eating the top while
-        // the strips float in dead space.
-        var mixer = DashboardLayout.CreateDefault().Cards.Single(c => c.Kind == CardKind.AppMixer);
+        // The complaint this answers: a wall of small panels competing for
+        // attention rather than a mixing desk with its readouts to one side.
+        var cards = DashboardLayout.CreateDefault().Cards;
+        var mixer = cards.Single(c => c.Kind == CardKind.AppMixer);
 
-        Assert.True(mixer.RowSpan >= DashboardLayout.Rows / 2);
-        Assert.Equal(DashboardLayout.Columns, mixer.ColumnSpan);
+        Assert.Equal(DashboardLayout.Rows, mixer.RowSpan);
+        Assert.True(mixer.ColumnSpan >= DashboardLayout.Columns * 3 / 4,
+            "the mixer should take most of the width");
+
+        // And every other card sits beside it, not on top of it.
+        foreach (var card in cards.Where(card => card.Id != mixer.Id))
+        {
+            Assert.True(card.Column >= mixer.Right, $"{card.Id} is not in the sidebar");
+        }
+    }
+
+    [Fact]
+    public void DefaultLayout_SidebarCardsShareOneColumnWithoutGaps()
+    {
+        var cards = DashboardLayout.CreateDefault().Cards
+            .Where(card => card.Kind != CardKind.AppMixer)
+            .OrderBy(card => card.Row)
+            .ToList();
+
+        var width = cards[0].ColumnSpan;
+        Assert.All(cards, card => Assert.Equal(width, card.ColumnSpan));
+
+        // Stacked flush, top to bottom, filling the height.
+        Assert.Equal(0, cards[0].Row);
+        Assert.Equal(DashboardLayout.Rows, cards[^1].Bottom);
+
+        for (var index = 1; index < cards.Count; index++)
+        {
+            Assert.Equal(cards[index - 1].Bottom, cards[index].Row);
+        }
     }
 
     [Fact]
