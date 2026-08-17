@@ -62,16 +62,37 @@ jobs:
       - name: Test
         run: dotnet test Blare.slnx --configuration Release
 
+      # The app itself cannot be built by the .NET SDK alone: WinUI 3's XAML
+      # compiler and the MRT resource tasks ship with Visual Studio, so an SDK
+      # build fails inside Microsoft.Build.Packaging.Pri.Tasks. Resolve the real
+      # MSBuild once and use it for every step that touches Blare.App.
+      - name: Locate MSBuild
+        id: msbuild
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $path = & $vswhere -latest -products * `
+            -requires Microsoft.Component.MSBuild `
+            -find "MSBuild\**\Bin\MSBuild.exe" | Select-Object -First 1
+
+          if (-not $path) {
+            throw "MSBuild not found on this runner."
+          }
+
+          "path=$path" >> $env:GITHUB_OUTPUT
+          Write-Host "Using $path"
+
       - name: Publish (unpackaged, portable)
-        run: >
-          dotnet publish src/Blare.App/Blare.App.csproj
-          --configuration Release
-          --runtime win-x64
-          --self-contained true
-          -p:Platform=x64
-          -p:Version=${{ steps.version.outputs.version }}
-          -p:WindowsPackageType=None
-          --output artifacts/portable
+        shell: pwsh
+        run: |
+          & "${{ steps.msbuild.outputs.path }}" src/Blare.App/Blare.App.csproj `
+            /t:Restore`;Publish `
+            /p:Configuration=Release /p:Platform=x64 `
+            /p:RuntimeIdentifier=win-x64 /p:SelfContained=true `
+            /p:WindowsPackageType=None `
+            /p:Version=${{ steps.version.outputs.version }} `
+            /p:PublishDir=artifacts/portable/ `
+            /verbosity:minimal
 
       - name: Package portable zip
         shell: pwsh
@@ -84,19 +105,7 @@ jobs:
         shell: pwsh
         continue-on-error: true
         run: |
-          # Resolved through vswhere rather than a hard-coded path: the runner
-          # image's Visual Studio edition and version move over time.
-          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-          $msbuild = & $vswhere -latest -products * `
-            -requires Microsoft.Component.MSBuild `
-            -find "MSBuild\**\Bin\MSBuild.exe" | Select-Object -First 1
-
-          if (-not $msbuild) {
-            Write-Warning "MSBuild not found on this runner; skipping the MSIX."
-            exit 0
-          }
-
-          & $msbuild src/Blare.App/Blare.App.csproj `
+          & "${{ steps.msbuild.outputs.path }}" src/Blare.App/Blare.App.csproj `
             /p:Configuration=Release /p:Platform=x64 `
             /p:Version=${{ steps.version.outputs.version }} `
             /p:WindowsPackageType=MSIX `
