@@ -23,6 +23,7 @@ public sealed partial class MixerPage : Page
     private readonly SafetyMonitor _safetyMonitor;
     private readonly BoostCoordinator _boostCoordinator;
     private readonly SpectrumMonitor _spectrumMonitor;
+    private readonly MonitorVolumeController _monitorVolume;
     private readonly SessionGroupTracker _groupTracker = new();
     private readonly IconResolver _iconResolver = new();
     private readonly DispatcherQueueTimer _safetyTimer;
@@ -52,6 +53,7 @@ public sealed partial class MixerPage : Page
         _safetyMonitor = App.Services.GetRequiredService<SafetyMonitor>();
         _boostCoordinator = App.Services.GetRequiredService<BoostCoordinator>();
         _spectrumMonitor = App.Services.GetRequiredService<SpectrumMonitor>();
+        _monitorVolume = App.Services.GetRequiredService<MonitorVolumeController>();
         _bandScratch = new double[_spectrumMonitor.BandCount];
 
         InitializeComponent();
@@ -85,8 +87,95 @@ public sealed partial class MixerPage : Page
     {
         await _volumeStore.LoadAsync();
         RefreshMasterDevice();
+        BuildHardwareControls();
         await RefreshSessionsAsync();
         UpdateStatusChips();
+    }
+
+    /// <summary>
+    /// Adds a row per display that exposes its speaker volume over DDC/CI.
+    ///
+    /// Built once rather than polled: DDC/CI is a slow serial channel and
+    /// hammering it makes monitors unresponsive. Displays that don't answer
+    /// are simply left out, and the whole section hides when none do.
+    /// </summary>
+    private void BuildHardwareControls()
+    {
+        try
+        {
+            var controls = _monitorVolume.GetControls().Where(c => c.SupportsVolume).ToList();
+
+            HardwareRows.Children.Clear();
+
+            foreach (var control in controls)
+            {
+                HardwareRows.Children.Add(BuildHardwareRow(control));
+            }
+
+            HardwarePanel.Visibility = controls.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        }
+        catch (Exception ex)
+        {
+            // A monitor refusing DDC/CI must never break the mixer.
+            CrashLog.Write(ex);
+            HardwarePanel.Visibility = Visibility.Collapsed;
+        }
+    }
+
+    private UIElement BuildHardwareRow(Audio.Devices.MonitorAudioControl control)
+    {
+        var grid = new Grid { ColumnSpacing = 12 };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(150) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var label = new TextBlock
+        {
+            Text = control.DisplayName,
+            FontSize = 11.5,
+            Opacity = 0.75,
+            VerticalAlignment = VerticalAlignment.Center,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+        };
+
+        var readout = new TextBlock
+        {
+            Text = $"{control.VolumePercent:F0}%",
+            FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Consolas"),
+            FontSize = 12,
+            MinWidth = 42,
+            TextAlignment = TextAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+
+        var slider = new Slider
+        {
+            Minimum = 0,
+            Maximum = 100,
+            Value = control.VolumePercent,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+
+        slider.ValueChanged += (_, e) =>
+        {
+            readout.Text = $"{e.NewValue:F0}%";
+
+            // Writes go straight to the display; a refusal is reported rather
+            // than silently leaving the slider somewhere the hardware isn't.
+            if (!_monitorVolume.TrySetVolumePercent(control.Index, e.NewValue))
+            {
+                readout.Text = "n/a";
+            }
+        };
+
+        Grid.SetColumn(label, 0);
+        Grid.SetColumn(slider, 1);
+        Grid.SetColumn(readout, 2);
+        grid.Children.Add(label);
+        grid.Children.Add(slider);
+        grid.Children.Add(readout);
+
+        return grid;
     }
 
     private void RefreshMasterDevice()
@@ -156,11 +245,35 @@ public sealed partial class MixerPage : Page
 
     private void RunSafetySample()
     {
-        var samples = _strips
-            .Where(pair => pair.Value.ViewModel is not null)
-            .Select(pair => (pair.Key, pair.Value.ViewModel!.VolumePercent));
+        // Loudness is judged from measured output, not slider positions — see
+        // SafetyMonitor. Peaks come straight from the live sessions, taking the
+        // loudest process where an app spans several.
+        var peaksByApp = new Dictionary<string, double>();
 
-        var warned = _safetyMonitor.Sample(samples, DateTimeOffset.UtcNow);
+        foreach (var session in _sessionManager.GetSessionsForDefaultDevice())
+        {
+            if (session.IsSystemSoundsSession)
+            {
+                continue;
+            }
+
+            var appKey = _strips.Keys.FirstOrDefault(key =>
+                _processesByApp.TryGetValue(key, out var processes) && processes.Contains(session.ProcessId));
+
+            if (appKey is null)
+            {
+                continue;
+            }
+
+            peaksByApp[appKey] = Math.Max(peaksByApp.GetValueOrDefault(appKey), session.PeakLevel);
+        }
+
+        var masterVolume = _masterDeviceId is null ? 1.0 : _deviceManager.GetMasterVolume(_masterDeviceId);
+        var warned = _safetyMonitor.Sample(
+            peaksByApp.Select(pair => (pair.Key, pair.Value)),
+            masterVolume,
+            DateTimeOffset.UtcNow);
+
         UpdateStatusChips();
 
         if (warned.Count == 0)

@@ -251,6 +251,22 @@ public sealed partial class DiagnosticsPage : Page
                 $"{volume:P0} volume",
                 device.IsDefault ? Brush("BlareAccent") : null));
         }
+
+        foreach (var control in Service<MonitorVolumeController>().GetControls())
+        {
+            body.Children.Add(Row(
+                control.DisplayName,
+                control.SupportsVolume
+                    ? $"{control.VolumePercent:F0}% speaker volume (display hardware)"
+                    : "no speaker volume over DDC/CI",
+                control.SupportsVolume ? Brush("BlareMeterLow") : null));
+        }
+
+        body.Children.Add(Note(
+            "Displays with built-in speakers have their own amplifier volume, separate from " +
+            "Windows. Blare reads it over the display data channel. Speakers on a headphone or " +
+            "line-out jack have a purely analogue knob with no connection back to the PC, so " +
+            "their position cannot be read by any software."));
     }
 
     private static void BuildAnalysis(StackPanel body)
@@ -296,6 +312,8 @@ public sealed partial class DiagnosticsPage : Page
 
         body.Children.Add(Row("Warnings raised", safety.WarningCount.ToString()));
         body.Children.Add(Row("Time spent loud", $"{safety.TotalTimeAboveThreshold.TotalMinutes:F0} minutes"));
+        body.Children.Add(Row("Counts as loud", $"output at or above {safety.LoudLevel:P0}"));
+        body.Children.Add(Row("Warns after", $"{safety.WarnAfter.TotalMinutes:F0} minutes loud"));
         body.Children.Add(Row("Re-confirm after", $"{consent.ReconfirmationInterval.TotalDays:F0} days"));
 
         var records = consent.Records.Where(r => r.IsActive).ToList();
@@ -322,8 +340,11 @@ public sealed partial class DiagnosticsPage : Page
         }
 
         body.Children.Add(Note(
-            "Blare measures relative signal level, not actual sound pressure at your ears — " +
-            "it can't know your speaker or headphone volume."));
+            "Loudness is judged from the sound actually leaving your machine — an app's measured " +
+            "level scaled by the output device volume. An app's own slider sitting at 100% is not " +
+            "loud on its own: Windows sets every app to 100% by default, and it only means the app " +
+            "isn't being turned down. Silence never counts. This is a relative measure, not sound " +
+            "pressure at your ears — Blare can't know your speaker or headphone volume."));
     }
 
     private static void BuildBoost(StackPanel body, DateTimeOffset now)

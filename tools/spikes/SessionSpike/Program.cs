@@ -1,49 +1,63 @@
-using BLight.Blare.Audio.Boost;
-using BLight.Blare.Audio.Sessions;
+using BLight.Blare.Audio.Devices;
 
-// Follow-up diagnostic: mute is confirmed to zero the loopback capture.
-// Does session VOLUME do the same, or is volume applied after the capture
-// tap? If capture survives volume=0, boost can silence the original to the
-// speakers while still capturing full-strength signal to amplify.
+// Spike: can Blare reach the volume control built into a display?
+//
+// Analog speakers on a 3.5mm jack have a purely analogue knob with no data path
+// back to the PC — unreachable by any software. Displays are different: they
+// expose speaker volume over DDC/CI as VCP register 0x62. This checks whether
+// this machine's monitors actually answer.
 
-var manager = new AudioSessionManager();
-var capture = new ProcessLoopbackCapture();
+var controller = new MonitorVolumeController();
+var controls = controller.GetControls();
 
-var sessions = manager.GetSessionsForDefaultDevice()
-    .Where(s => !s.IsSystemSoundsSession)
-    .ToList();
+Console.WriteLine($"Found {controls.Count} physical display(s):\n");
 
-var target = sessions.OrderByDescending(s => s.PeakLevel).FirstOrDefault();
-
-if (target is null || target.PeakLevel <= 0.0001f)
+foreach (var control in controls)
 {
-    Console.WriteLine("Nothing is producing audio — play something and re-run.");
+    if (control.SupportsVolume)
+    {
+        Console.WriteLine(
+            $"  [OK]   {control.Description,-28} volume {control.Volume}/{control.MaximumVolume} " +
+            $"({control.VolumePercent:F0}%)");
+    }
+    else
+    {
+        Console.WriteLine($"  [no]   {control.Description,-28} no DDC/CI speaker volume");
+    }
+}
+
+Console.WriteLine();
+
+var usable = controls.Where(c => c.SupportsVolume).ToList();
+if (usable.Count == 0)
+{
+    Console.WriteLine("No display reports a controllable speaker volume.");
+    Console.WriteLine("Either these monitors have no speakers, or DDC/CI is disabled in their OSD menu.");
     return;
 }
 
-Console.WriteLine($"Target: pid={target.ProcessId} (current peak {target.PeakLevel:F4})\n");
+Console.WriteLine($"{usable.Count} display(s) expose a speaker volume Blare could show and control.");
+Console.WriteLine("Round-tripping the first one to confirm writes are honoured...");
 
-var originalVolume = target.Volume;
+var target = usable[0];
+var original = target.VolumePercent;
+var probe = original >= 50 ? original - 10 : original + 10;
 
-try
+if (!controller.TrySetVolumePercent(target.Description, probe))
 {
-    foreach (var level in new[] { 1.0f, 0.5f, 0.0f })
-    {
-        manager.SetMute(target.ProcessId, false);
-        manager.SetVolume(target.ProcessId, level);
-        await Task.Delay(400);
-
-        var result = await capture.CaptureAsync(target.ProcessId, TimeSpan.FromSeconds(2));
-        Console.WriteLine($"volume={level,-5:P0} capture peak={result.PeakAmplitude:F6}");
-    }
-
-    Console.WriteLine();
-    Console.WriteLine("If peak scales with volume  -> capture is POST-volume; volume=0 also captures silence.");
-    Console.WriteLine("If peak stays constant      -> capture is PRE-volume; we can silence via volume=0 and still boost.");
+    Console.WriteLine("  Write refused — this display reports volume but won't accept changes.");
+    return;
 }
-finally
-{
-    manager.SetVolume(target.ProcessId, originalVolume);
-    manager.SetMute(target.ProcessId, false);
-    Console.WriteLine($"\nRestored volume to {originalVolume:P0}, unmuted.");
-}
+
+await Task.Delay(600);
+
+var after = controller.GetControls().First(c => c.Description == target.Description);
+Console.WriteLine($"  set {probe:F0}% -> reads back {after.VolumePercent:F0}%");
+
+controller.TrySetVolumePercent(target.Description, original);
+Console.WriteLine($"  restored to {original:F0}%");
+
+Console.WriteLine(
+    Math.Abs(after.VolumePercent - probe) <= 5
+        ? "\nCONFIRMED: display speaker volume is readable and writable."
+        : "\nPartial: the display accepted the write but reports a different value.");

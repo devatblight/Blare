@@ -72,6 +72,7 @@ public partial class App : Application
 
         services.AddSingleton<AudioSessionManager>();
         services.AddSingleton<AudioDeviceManager>();
+        services.AddSingleton<MonitorVolumeController>();
         services.AddSingleton<LoudnessTracker>();
         services.AddSingleton<ConsentState>();
         services.AddSingleton<SafetyMonitor>();

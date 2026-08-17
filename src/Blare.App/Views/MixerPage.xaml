@@ -62,6 +62,14 @@
                         TextAlignment="Right" />
                 </Grid>
 
+                <!-- Hardware volume built into displays, reached over DDC/CI.
+                     A third layer Windows' own mixer never shows. -->
+                <StackPanel x:Name="HardwarePanel" Spacing="6" Visibility="Collapsed">
+                    <Border Height="1" Background="{ThemeResource BlareStripBorder}" />
+                    <TextBlock Text="DISPLAY SPEAKERS" FontSize="9" FontWeight="Bold" Opacity="0.5" />
+                    <StackPanel x:Name="HardwareRows" Spacing="4" />
+                </StackPanel>
+
                 <Border Height="1" Background="{ThemeResource BlareStripBorder}" />
 
                 <!-- Inline status: small indicator dots, not KPI tiles -->
