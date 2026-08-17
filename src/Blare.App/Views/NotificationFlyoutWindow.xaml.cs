@@ -28,8 +28,11 @@ public enum FlyoutTone
 public sealed partial class NotificationFlyoutWindow : Window
 {
     private const int FlyoutWidth = 400;
-    private const int FlyoutHeight = 116;
+    private const int MinimumFlyoutHeight = 92;
     private const double SlideDistance = 14;
+
+    /// <summary>Set from the measured content each time a message is shown — a fixed height clips longer messages.</summary>
+    private int _flyoutHeight = MinimumFlyoutHeight;
 
     private readonly DispatcherQueueTimer _dismissTimer;
     private DesktopAcrylicController? _backdropController;
@@ -58,8 +61,9 @@ public sealed partial class NotificationFlyoutWindow : Window
 
         var handle = WindowNative.GetWindowHandle(this);
         FlyoutWindowNative.MakePassive(handle);
+        FlyoutWindowNative.RemoveSystemFrame(handle);
 
-        AppWindow.Resize(new Windows.Graphics.SizeInt32(FlyoutWidth, FlyoutHeight));
+        AppWindow.Resize(new Windows.Graphics.SizeInt32(FlyoutWidth, MinimumFlyoutHeight));
 
         // Park it off-screen so it is never seen at the origin before being placed.
         AppWindow.Move(new Windows.Graphics.PointInt32(-10000, -10000));
@@ -100,6 +104,7 @@ public sealed partial class NotificationFlyoutWindow : Window
         ActionButton.Content = actionLabel ?? string.Empty;
         ActionButton.Visibility = actionLabel is null ? Visibility.Collapsed : Visibility.Visible;
 
+        ResizeToContent();
         MoveTo(position);
 
         AppWindow.Show(activateWindow: false);
@@ -114,13 +119,32 @@ public sealed partial class NotificationFlyoutWindow : Window
         _dismissTimer.Start();
     }
 
+    /// <summary>
+    /// Grows the window to fit the message.
+    ///
+    /// XAML measures in device-independent units while AppWindow sizes in
+    /// physical pixels, so the measured height has to be scaled — skipping that
+    /// step is why text clips on a display at anything other than 100%.
+    /// </summary>
+    private void ResizeToContent()
+    {
+        var scale = Content?.XamlRoot?.RasterizationScale ?? 1.0;
+
+        RootHost.Measure(new Windows.Foundation.Size(FlyoutWidth / scale, double.PositiveInfinity));
+
+        var measured = (int)Math.Ceiling(RootHost.DesiredSize.Height * scale);
+        _flyoutHeight = Math.Max(MinimumFlyoutHeight, measured);
+
+        AppWindow.Resize(new Windows.Graphics.SizeInt32(FlyoutWidth, _flyoutHeight));
+    }
+
     public void MoveTo(FlyoutPosition position)
     {
         var area = DisplayArea.GetFromWindowId(AppWindow.Id, DisplayAreaFallback.Primary);
         var work = area.WorkArea;
 
         var (x, y) = position.Locate(
-            work.X, work.Y, work.Width, work.Height, FlyoutWidth, FlyoutHeight);
+            work.X, work.Y, work.Width, work.Height, FlyoutWidth, _flyoutHeight);
 
         AppWindow.Move(new Windows.Graphics.PointInt32(x, y));
     }

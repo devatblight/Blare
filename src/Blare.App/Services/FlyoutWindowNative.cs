@@ -49,4 +49,34 @@ internal static class FlyoutWindowNative
     /// <summary>Raises the window above everything, without activating it.</summary>
     public static void BringToTop(IntPtr handle) =>
         SetWindowPos(handle, HwndTopmost, 0, 0, 0, 0, SwpNoMove | SwpNoSize | SwpNoActivate);
+
+    private const int DwmwaWindowCornerPreference = 33;
+    private const int DwmwaBorderColor = 34;
+    private const int DwmwcpDoNotRound = 1;
+
+    /// <summary>DWMWA_COLOR_NONE — suppresses the border entirely.</summary>
+    private const uint DwmColorNone = 0xFFFFFFFE;
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(IntPtr hWnd, int attribute, ref int value, int size);
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(IntPtr hWnd, int attribute, ref uint value, int size);
+
+    /// <summary>
+    /// Strips the window frame Windows draws around every top-level window.
+    ///
+    /// Hiding the title bar through the presenter isn't enough — DWM still
+    /// paints a border and rounds the corners, which shows up as a pale
+    /// rectangle around a flyout that draws its own card. Both have to be
+    /// turned off at the DWM level.
+    /// </summary>
+    public static void RemoveSystemFrame(IntPtr handle)
+    {
+        var noBorder = DwmColorNone;
+        DwmSetWindowAttribute(handle, DwmwaBorderColor, ref noBorder, sizeof(uint));
+
+        var square = DwmwcpDoNotRound;
+        DwmSetWindowAttribute(handle, DwmwaWindowCornerPreference, ref square, sizeof(int));
+    }
 }
