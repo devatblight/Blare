@@ -82,6 +82,22 @@ jobs:
           "path=$path" >> $env:GITHUB_OUTPUT
           Write-Host "Using $path"
 
+      # Restore must be its own MSBuild invocation. Sharing one with Publish
+      # evaluates the project before restore has written the NuGet props, so the
+      # Windows App SDK targets are never imported: XAML codegen does not run and
+      # no resource index is produced. On a clean tree that fails the compile
+      # outright; with stale obj/ around it silently publishes an app whose
+      # resources.pri is missing, which then dies on launch with
+      # XamlParseException. That is exactly what shipped in 0.1.0.
+      - name: Restore
+        shell: pwsh
+        run: |
+          & "${{ steps.msbuild.outputs.path }}" src/Blare.App/Blare.App.csproj `
+            /t:Restore `
+            /p:Configuration=Release /p:Platform=x64 `
+            /p:RuntimeIdentifier=win-x64 `
+            /verbosity:minimal
+
       - name: Publish (unpackaged, portable)
         shell: pwsh
         run: |
@@ -91,7 +107,7 @@ jobs:
           New-Item -ItemType Directory -Force $publishDir | Out-Null
 
           & "${{ steps.msbuild.outputs.path }}" src/Blare.App/Blare.App.csproj `
-            /t:Restore`;Publish `
+            /t:Publish `
             /p:Configuration=Release /p:Platform=x64 `
             /p:RuntimeIdentifier=win-x64 /p:SelfContained=true `
             /p:WindowsPackageType=None `
@@ -101,6 +117,19 @@ jobs:
 
           if (-not (Get-ChildItem $publishDir -File -ErrorAction SilentlyContinue)) {
             throw "Publish produced no files in $publishDir"
+          }
+
+      - name: Check the portable build is complete
+        shell: pwsh
+        run: |
+          # An unpackaged WinUI app cannot load a single piece of XAML without
+          # its resource index, so a build missing it is dead on arrival even
+          # though every other file is present and the publish "succeeded".
+          foreach ($file in 'Blare.App.exe', 'resources.pri', 'Microsoft.UI.Xaml.dll') {
+            $path = Join-Path 'artifacts/portable' $file
+            if (-not (Test-Path $path)) {
+              throw "Portable build is missing $file - it would crash on launch."
+            }
           }
 
       - name: Package portable zip
