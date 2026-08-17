@@ -44,6 +44,10 @@ public partial class App : Application
 
     protected override async void OnLaunched(LaunchActivatedEventArgs args)
     {
+        // Checked once at startup rather than per animation: an app about
+        // hearing has no business ignoring the system's accessibility settings.
+        Controls.Motion.Reduced = !new Windows.UI.ViewManagement.UISettings().AnimationsEnabled;
+
         // Theme resources must exist before any page that references them loads,
         // and consent must be restored before anything can read a safety state.
         await Services.GetRequiredService<ThemeService>().LoadAsync();

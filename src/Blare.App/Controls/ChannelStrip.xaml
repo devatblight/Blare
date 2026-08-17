@@ -6,7 +6,8 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     PointerEntered="OnPointerEntered"
-    PointerExited="OnPointerExited">
+    PointerExited="OnPointerExited"
+    PointerWheelChanged="OnPointerWheelChanged">
 
     <Grid x:Name="StripRoot" Width="104">
         <Border
@@ -75,13 +76,35 @@
                 </Grid>
 
                 <!-- Numeric readout -->
-                <TextBlock
-                    x:Name="VolumeText"
+                <!-- Click to type an exact level. Dragging a fader to precisely
+                     37% is a fight; typing it is not. -->
+                <Button
+                    x:Name="VolumeReadout"
                     Grid.Row="2"
-                    Text="100%"
-                    FontSize="12"
-                    FontFamily="Consolas"
-                    HorizontalAlignment="Center" />
+                    Background="Transparent"
+                    BorderThickness="0"
+                    Padding="6,1"
+                    HorizontalAlignment="Center"
+                    ToolTipService.ToolTip="Click to type an exact level">
+                    <TextBlock
+                        x:Name="VolumeText"
+                        Text="100%"
+                        FontSize="12"
+                        FontFamily="Consolas" />
+                    <Button.Flyout>
+                        <Flyout x:Name="LevelFlyout" Opening="OnLevelFlyoutOpening">
+                            <StackPanel Spacing="8" Width="150">
+                                <NumberBox
+                                    x:Name="LevelInput"
+                                    Header="Level"
+                                    Minimum="0"
+                                    Maximum="100"
+                                    SpinButtonPlacementMode="Compact"
+                                    ValueChanged="OnLevelTyped" />
+                            </StackPanel>
+                        </Flyout>
+                    </Button.Flyout>
+                </Button>
 
                 <Grid x:Name="ButtonsRow" Grid.Row="3" ColumnSpacing="6">
                     <Grid.ColumnDefinitions>

@@ -25,6 +25,15 @@ internal static class Motion
     public static readonly TimeSpan Normal = TimeSpan.FromMilliseconds(180);
     public static readonly TimeSpan Settle = TimeSpan.FromMilliseconds(260);
 
+    /// <summary>
+    /// When the user has asked Windows to reduce motion, every animation still
+    /// runs but lands immediately.
+    ///
+    /// Honoured by jumping to the end value rather than by skipping the call, so
+    /// no caller has to know about it and nothing is left half-animated.
+    /// </summary>
+    public static bool Reduced { get; set; }
+
     public static void FadeTo(UIElement element, double opacity, TimeSpan? duration = null)
     {
         var storyboard = new Storyboard();
@@ -123,6 +132,12 @@ internal static class Motion
 
     private static void Run(Storyboard storyboard, Action settle)
     {
+        if (Reduced)
+        {
+            settle();
+            return;
+        }
+
         storyboard.Completed += (_, _) =>
         {
             storyboard.Stop();

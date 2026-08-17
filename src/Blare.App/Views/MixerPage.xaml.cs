@@ -30,6 +30,8 @@ public sealed partial class MixerPage : Page
     private readonly VolumeCoordinator _volumeCoordinator;
     private readonly SpectrumMonitor _spectrumMonitor;
     private readonly DashboardStore _dashboardStore;
+    private readonly LimitsStore _limits;
+    private readonly FlyoutService _flyout;
     private readonly SessionGroupTracker _groupTracker = new();
     private readonly IconResolver _iconResolver = new();
 
@@ -73,6 +75,10 @@ public sealed partial class MixerPage : Page
     private IReadOnlyList<FocusLevel>? _levelsBeforeFocus;
     private string? _focusedAppKey;
 
+    /// <summary>Mute states captured before solo, so clearing it restores them rather than unmuting everything.</summary>
+    private readonly Dictionary<string, bool> _mutesBeforeSolo = new();
+    private string? _soloedAppKey;
+
     public MixerPage()
     {
         _sessionManager = App.Services.GetRequiredService<AudioSessionManager>();
@@ -83,6 +89,8 @@ public sealed partial class MixerPage : Page
         _volumeCoordinator = App.Services.GetRequiredService<VolumeCoordinator>();
         _spectrumMonitor = App.Services.GetRequiredService<SpectrumMonitor>();
         _dashboardStore = App.Services.GetRequiredService<DashboardStore>();
+        _limits = App.Services.GetRequiredService<LimitsStore>();
+        _flyout = App.Services.GetRequiredService<FlyoutService>();
         _bandScratch = new double[_spectrumMonitor.BandCount];
 
         InitializeComponent();
@@ -404,6 +412,70 @@ public sealed partial class MixerPage : Page
         }
     }
 
+    /// <summary>
+    /// Mutes everything except one app.
+    ///
+    /// Distinct from focus, which ducks the others by level: solo is absolute
+    /// and reversible, and clicking it again puts every mute back exactly as it
+    /// was rather than unmuting things the user had muted themselves.
+    /// </summary>
+    private void Solo(string appKey)
+    {
+        if (_soloedAppKey == appKey)
+        {
+            foreach (var (key, strip) in _strips)
+            {
+                if (strip.ViewModel is { } viewModel && _mutesBeforeSolo.TryGetValue(key, out var wasMuted))
+                {
+                    viewModel.IsMuted = wasMuted;
+                }
+            }
+
+            _soloedAppKey = null;
+            _mutesBeforeSolo.Clear();
+            UpdateHeader();
+            return;
+        }
+
+        _mutesBeforeSolo.Clear();
+
+        foreach (var (key, strip) in _strips)
+        {
+            if (strip.ViewModel is not { } viewModel)
+            {
+                continue;
+            }
+
+            _mutesBeforeSolo[key] = viewModel.IsMuted;
+            viewModel.IsMuted = key != appKey;
+        }
+
+        _soloedAppKey = appKey;
+        UpdateHeader();
+    }
+
+    private void SetLimit(SessionRowViewModel viewModel, double? ceiling)
+    {
+        var key = string.IsNullOrEmpty(viewModel.ExecutablePath) ? viewModel.AppKey : viewModel.ExecutablePath;
+
+        if (ceiling is null)
+        {
+            _limits.Limits.ClearCap(key);
+            _flyout.Show(viewModel.DisplayName, "Limit removed.", FlyoutTone.Neutral, TimeSpan.FromSeconds(3));
+            return;
+        }
+
+        _limits.Limits.SetCap(key, ceiling.Value);
+        _flyout.Show(viewModel.DisplayName, $"Never above {ceiling:F0}%.", FlyoutTone.Neutral, TimeSpan.FromSeconds(3));
+
+        // Applies immediately rather than only next time the fader moves — a
+        // limit that leaves the app loud until you touch it isn't a limit.
+        if (viewModel.VolumePercent > ceiling.Value)
+        {
+            viewModel.VolumePercent = ceiling.Value;
+        }
+    }
+
     // ---- devices -------------------------------------------------------------
 
     private void RefreshMasterDevice()
@@ -673,6 +745,8 @@ public sealed partial class MixerPage : Page
             strip.SetDensity(_stripDensity);
             strip.Bind(viewModel);
             strip.FocusRequested += (_, key) => CrashLog.FireAndForget(ToggleFocusAsync(key));
+            strip.SoloRequested += (_, key) => Solo(key);
+            strip.LimitRequested += (_, ceiling) => SetLimit(viewModel, ceiling);
 
             _strips[groupKey] = strip;
             _stripsPanel.Children.Add(strip);
@@ -788,6 +862,20 @@ public sealed partial class MixerPage : Page
             viewModel.IsMuted = false;
         }
 
+        // Enforced here, at the one place a level reaches the audio API, so a
+        // cap holds no matter what moved the fader — the slider, a hotkey, a
+        // scene or a restored level from a previous session.
+        var limitKey = string.IsNullOrEmpty(viewModel.ExecutablePath) ? viewModel.AppKey : viewModel.ExecutablePath;
+        var allowed = _limits.Limits.Apply(limitKey, viewModel.VolumePercent, TimeOnly.FromDateTime(DateTime.Now));
+
+        if (allowed < viewModel.VolumePercent)
+        {
+            // Pushes the fader back to the ceiling so the UI never shows a level
+            // the app isn't actually at.
+            viewModel.VolumePercent = allowed;
+            return;
+        }
+
         foreach (var processId in ProcessesFor(viewModel))
         {
             _volumeCoordinator.SetVolumePercent(processId, viewModel.VolumePercent);
@@ -875,6 +963,18 @@ public sealed partial class MixerPage : Page
             && focused.ViewModel is { } viewModel)
         {
             summary += $" · focused on {viewModel.DisplayName}";
+        }
+
+        if (_soloedAppKey is not null
+            && _strips.TryGetValue(_soloedAppKey, out var soloed)
+            && soloed.ViewModel is { } soloModel)
+        {
+            summary += $" · solo {soloModel.DisplayName}";
+        }
+
+        if (_limits.Limits.QuietHours.Contains(TimeOnly.FromDateTime(DateTime.Now)))
+        {
+            summary += $" · quiet hours, {_limits.Limits.QuietHours.CeilingPercent:F0}% ceiling";
         }
 
         HeaderSubtitle.Text = summary;

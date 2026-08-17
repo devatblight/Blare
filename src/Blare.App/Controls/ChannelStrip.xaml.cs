@@ -25,18 +25,76 @@ public sealed partial class ChannelStrip : UserControl
 
     private const double MutedOpacity = 0.4;
 
+    /// <summary>Percentage points per wheel notch.</summary>
+    private const double WheelStep = 2;
+
     private SessionRowViewModel? _viewModel;
     private bool _suppressPush;
 
     public ChannelStrip()
     {
         InitializeComponent();
+        BuildContextMenu();
     }
 
     public SessionRowViewModel? ViewModel => _viewModel;
 
     /// <summary>Raised when the user asks for this app to be the focused one.</summary>
     public event EventHandler<string>? FocusRequested;
+
+    /// <summary>Raised when the user asks for everything except this app to be muted.</summary>
+    public event EventHandler<string>? SoloRequested;
+
+    /// <summary>Raised with a ceiling this app should never be set above, or null to remove one.</summary>
+    public event EventHandler<double?>? LimitRequested;
+
+    /// <summary>
+    /// Right-click menu for the things that don't earn a permanent button.
+    ///
+    /// Built here rather than in XAML because every item needs the view model,
+    /// which arrives after construction.
+    /// </summary>
+    private void BuildContextMenu()
+    {
+        var menu = new MenuFlyout();
+
+        var solo = new MenuFlyoutItem { Text = "Solo — mute everything else" };
+        solo.Click += (_, _) =>
+        {
+            if (_viewModel is not null)
+            {
+                SoloRequested?.Invoke(this, _viewModel.AppKey);
+            }
+        };
+
+        var reset = new MenuFlyoutItem { Text = "Reset to 100%" };
+        reset.Click += (_, _) =>
+        {
+            if (_viewModel is not null)
+            {
+                _viewModel.VolumePercent = 100;
+            }
+        };
+
+        menu.Items.Add(solo);
+        menu.Items.Add(reset);
+        menu.Items.Add(new MenuFlyoutSeparator());
+
+        // A ceiling is a rule, not a level: it survives the fader being dragged
+        // and the app being restarted.
+        foreach (var ceiling in new double[] { 25, 50, 75 })
+        {
+            var item = new MenuFlyoutItem { Text = $"Never above {ceiling:F0}%" };
+            item.Click += (_, _) => LimitRequested?.Invoke(this, ceiling);
+            menu.Items.Add(item);
+        }
+
+        var clear = new MenuFlyoutItem { Text = "Remove limit" };
+        clear.Click += (_, _) => LimitRequested?.Invoke(this, null);
+        menu.Items.Add(clear);
+
+        ContextFlyout = menu;
+    }
 
     public void SetFocused(bool isFocused)
     {
@@ -45,6 +103,49 @@ public sealed partial class ChannelStrip : UserControl
         _suppressPush = false;
 
         Motion.FadeTo(FocusRing, isFocused ? 1 : 0, Motion.Normal);
+    }
+
+    /// <summary>Wheel anywhere over the strip moves its fader, the way a real desk's would.</summary>
+    private void OnPointerWheelChanged(object sender, PointerRoutedEventArgs e)
+    {
+        if (_viewModel is null)
+        {
+            return;
+        }
+
+        var delta = e.GetCurrentPoint(this).Properties.MouseWheelDelta;
+
+        if (delta == 0)
+        {
+            return;
+        }
+
+        _viewModel.VolumePercent = Math.Clamp(
+            _viewModel.VolumePercent + (Math.Sign(delta) * WheelStep), 0, _viewModel.MaxVolumePercent);
+
+        // Otherwise the card's scroll viewer takes the gesture as well and the
+        // desk scrolls sideways while the fader moves.
+        e.Handled = true;
+    }
+
+    private void OnLevelFlyoutOpening(object? sender, object e)
+    {
+        if (_viewModel is not null)
+        {
+            LevelInput.Maximum = _viewModel.MaxVolumePercent;
+            LevelInput.Value = Math.Round(_viewModel.VolumePercent);
+        }
+    }
+
+    private void OnLevelTyped(NumberBox sender, NumberBoxValueChangedEventArgs args)
+    {
+        // NaN arrives when the box is cleared mid-edit.
+        if (_viewModel is null || double.IsNaN(args.NewValue))
+        {
+            return;
+        }
+
+        _viewModel.VolumePercent = Math.Clamp(args.NewValue, 0, _viewModel.MaxVolumePercent);
     }
 
     private void OnPointerEntered(object sender, PointerRoutedEventArgs e) =>
