@@ -27,16 +27,24 @@ public enum FlyoutTone
 /// </summary>
 public sealed partial class NotificationFlyoutWindow : Window
 {
-    private const int FlyoutWidth = 400;
+    /// <summary>Card width in DIPs. Scaled to physical pixels when the window is sized, so it looks the same at any display scale.</summary>
+    private const double FlyoutWidth = 380;
+
     private const int MinimumFlyoutHeight = 76;
 
-    /// <summary>The message is capped at three lines, so anything taller than this means the measure went wrong.</summary>
-    private const int MaximumFlyoutHeight = 220;
+    /// <summary>Fits a title and two wrapped lines. Used when the measure comes back implausibly small.</summary>
+    private const double FallbackContentHeight = 92;
+
+    /// <summary>The message is capped at three lines, so anything taller than this means the measure went wrong. In DIPs.</summary>
+    private const double MaximumFlyoutHeight = 220;
 
     private const double SlideDistance = 14;
 
     /// <summary>Set from the measured content each time a message is shown — a fixed height clips longer messages.</summary>
     private int _flyoutHeight = MinimumFlyoutHeight;
+
+    /// <summary>The card's width in physical pixels, once the display scale is known.</summary>
+    private int _flyoutWidth = (int)FlyoutWidth;
 
     private readonly DispatcherQueueTimer _dismissTimer;
     private DesktopAcrylicController? _backdropController;
@@ -70,7 +78,7 @@ public sealed partial class NotificationFlyoutWindow : Window
         RootHost.PointerEntered += OnPointerEntered;
         RootHost.PointerExited += OnPointerExited;
 
-        AppWindow.Resize(new Windows.Graphics.SizeInt32(FlyoutWidth, MinimumFlyoutHeight));
+        AppWindow.Resize(new Windows.Graphics.SizeInt32(_flyoutWidth, MinimumFlyoutHeight));
 
         // Park it off-screen so it is never seen at the origin before being placed.
         AppWindow.Move(new Windows.Graphics.PointInt32(-10000, -10000));
@@ -139,21 +147,38 @@ public sealed partial class NotificationFlyoutWindow : Window
     /// </summary>
     private void ResizeToContent()
     {
-        var scale = Content?.XamlRoot?.RasterizationScale ?? 1.0;
-        var availableWidth = FlyoutWidth / scale;
+        // Straight from the OS rather than XamlRoot.RasterizationScale, which is
+        // null until the window has been shown once — so the first message of a
+        // session was measured as though the display were at 100%, and on a
+        // scaled display the window came out too short and clipped the text.
+        var scale = FlyoutWindowNative.ScaleFor(WindowNative.GetWindowHandle(this));
+        _flyoutWidth = (int)Math.Ceiling(FlyoutWidth * scale);
 
         // Measure against a fresh layout pass. Measuring straight after setting
         // the text returns the previous message's size, which is what was
         // clipping longer messages.
         RootHost.InvalidateMeasure();
-        RootHost.Measure(new Windows.Foundation.Size(availableWidth, double.PositiveInfinity));
+        RootHost.Measure(new Windows.Foundation.Size(FlyoutWidth, double.PositiveInfinity));
         RootHost.UpdateLayout();
-        RootHost.Measure(new Windows.Foundation.Size(availableWidth, double.PositiveInfinity));
+        RootHost.Measure(new Windows.Foundation.Size(FlyoutWidth, double.PositiveInfinity));
 
+        // Every bound is in DIPs and scaled together — mixing a scaled measure
+        // with an unscaled floor is how this went wrong before.
+        var minimum = (int)Math.Ceiling(MinimumFlyoutHeight * scale);
+        var maximum = (int)Math.Ceiling(MaximumFlyoutHeight * scale);
         var measured = (int)Math.Ceiling(RootHost.DesiredSize.Height * scale);
-        _flyoutHeight = Math.Clamp(measured, MinimumFlyoutHeight, MaximumFlyoutHeight);
 
-        AppWindow.Resize(new Windows.Graphics.SizeInt32(FlyoutWidth, _flyoutHeight));
+        // A measure that lands at the floor almost always means it ran before
+        // layout knew the text, so fall back to a height that fits two wrapped
+        // lines rather than trusting it and cutting the message off.
+        if (measured <= minimum)
+        {
+            measured = (int)Math.Ceiling(FallbackContentHeight * scale);
+        }
+
+        _flyoutHeight = Math.Clamp(measured, minimum, maximum);
+
+        AppWindow.Resize(new Windows.Graphics.SizeInt32(_flyoutWidth, _flyoutHeight));
     }
 
     public void MoveTo(FlyoutPosition position)
@@ -162,7 +187,7 @@ public sealed partial class NotificationFlyoutWindow : Window
         var work = area.WorkArea;
 
         var (x, y) = position.Locate(
-            work.X, work.Y, work.Width, work.Height, FlyoutWidth, _flyoutHeight);
+            work.X, work.Y, work.Width, work.Height, _flyoutWidth, _flyoutHeight);
 
         AppWindow.Move(new Windows.Graphics.PointInt32(x, y));
     }

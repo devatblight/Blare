@@ -257,11 +257,13 @@ public sealed partial class MixerPage
 
     private UIElement BuildQuickActionsCard(CardDensity density)
     {
+        // Short labels: these sit in the narrowest card on the desk, and
+        // "Level everything to 100%" simply does not fit next to an icon there.
         var actions = new (string Label, int Glyph, Action Run)[]
         {
-            ("Mute everything", 0xE74F, () => SetAllMuted(true)),
-            ("Unmute everything", 0xE767, () => SetAllMuted(false)),
-            ("Level everything to 100%", 0xE9E9, () => SetAllVolume(100)),
+            ("Mute all", 0xE74F, () => SetAllMuted(true)),
+            ("Unmute all", 0xE767, () => SetAllMuted(false)),
+            ("All to 100%", 0xE9E9, () => SetAllVolume(100)),
             ("Clear focus", 0xE711, () => CrashLog.FireAndForget(ReleaseFocusAsync())),
         };
 

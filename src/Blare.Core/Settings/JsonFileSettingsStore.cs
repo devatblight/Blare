@@ -42,11 +42,26 @@ public sealed class JsonFileSettingsStore : ISettingsStore
         return await JsonSerializer.DeserializeAsync<T>(stream, cancellationToken: cancellationToken);
     }
 
+    /// <summary>
+    /// Writes to a temporary file and moves it into place.
+    ///
+    /// Writing straight to the destination truncates it first, so losing power
+    /// or being killed mid-write leaves a half-written file where the settings
+    /// used to be — and the app comes back with its consent record, saved levels
+    /// or dashboard gone. The move is the only step that touches the real file.
+    /// </summary>
     public async Task SaveAsync<T>(string key, T value, CancellationToken cancellationToken = default)
     {
         var path = GetPath(key);
-        await using var stream = File.Create(path);
-        await JsonSerializer.SerializeAsync(stream, value, cancellationToken: cancellationToken);
+        var temporary = path + ".tmp";
+
+        await using (var stream = File.Create(temporary))
+        {
+            await JsonSerializer.SerializeAsync(stream, value, cancellationToken: cancellationToken);
+            await stream.FlushAsync(cancellationToken);
+        }
+
+        File.Move(temporary, path, overwrite: true);
     }
 
     private string GetPath(string key) => Path.Combine(_directory, $"{key}.json");

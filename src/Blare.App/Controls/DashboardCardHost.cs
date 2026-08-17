@@ -217,7 +217,10 @@ public sealed class DashboardCardHost : ContentControl
         // row, which is what the content actually gets.
         var usableHeight = height - 46;
 
-        var density = width < 240 || usableHeight < 150
+        // Height decides the band; width only forces Compact when it is genuinely
+        // too narrow for a label. Judging on width alone put a tall, narrow card
+        // into Compact and left it mostly empty.
+        var density = width < 190 || usableHeight < 150
             ? CardDensity.Compact
             : usableHeight < 280
                 ? CardDensity.Normal
