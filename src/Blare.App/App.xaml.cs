@@ -1,4 +1,5 @@
 using Blight.Blare.App.Services;
+using Blight.Blare.App.Views;
 using Blight.Blare.Audio.Analysis;
 using Blight.Blare.Audio.Devices;
 using Blight.Blare.Audio.Sessions;
@@ -72,8 +73,29 @@ public partial class App : Application
             _mainWindow.Activate();
         }
 
+        await Services.GetRequiredService<LimitsStore>().LoadAsync();
+        await Services.GetRequiredService<SceneStore>().LoadAsync();
+
+        // Hotkeys are registered once for the process, not per window, so they
+        // keep working while Blare sits in the tray with no window at all.
+        var hotkeys = Services.GetRequiredService<HotkeyCommands>();
+        hotkeys.RegisterDefaults();
+
+        if (hotkeys.Unavailable.Count > 0)
+        {
+            Services.GetRequiredService<FlyoutService>().Show(
+                "Some shortcuts are taken",
+                $"{string.Join(", ", hotkeys.Unavailable)} already belong to another app.",
+                FlyoutTone.Caution,
+                TimeSpan.FromSeconds(6));
+        }
+
+        Services.GetRequiredService<BreakReminder>().Start();
+
         _trayIcon = Services.GetRequiredService<TrayIconService>();
         _trayIcon.OpenRequested += (_, _) => _mainWindow.Activate();
+        _trayIcon.MuteEverythingRequested += (_, _) => hotkeys.MuteEverything();
+        _trayIcon.MuteForegroundRequested += (_, _) => hotkeys.ToggleMuteForeground();
         _trayIcon.ExitRequested += (_, _) =>
         {
             _trayIcon.Dispose();
@@ -109,6 +131,11 @@ public partial class App : Application
         services.AddSingleton<WindowCloseBehavior>();
         services.AddSingleton<ThemeService>();
         services.AddSingleton<BackdropService>();
+        services.AddSingleton<HotkeyService>();
+        services.AddSingleton<HotkeyCommands>();
+        services.AddSingleton<LimitsStore>();
+        services.AddSingleton<SceneStore>();
+        services.AddSingleton<BreakReminder>();
         services.AddSingleton(new AppPaths(settingsDirectory));
         services.AddTransient<MainWindow>();
 
