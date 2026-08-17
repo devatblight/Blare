@@ -4,29 +4,19 @@ namespace Blare.Core.Tests.Layout;
 
 public class DashboardLayoutTests
 {
-    [Fact]
-    public void DefaultLayout_ContainsEveryPanel()
-    {
-        var layout = DashboardLayout.CreateDefault();
-
-        Assert.NotNull(layout.Get(DashboardLayout.MasterPanel));
-        Assert.NotNull(layout.Get(DashboardLayout.DisplaysPanel));
-        Assert.NotNull(layout.Get(DashboardLayout.StatusPanel));
-        Assert.NotNull(layout.Get(DashboardLayout.DeskPanel));
-    }
+    private static DashboardCard Card(string id, int column, int row, int columnSpan = 3, int rowSpan = 3) =>
+        new(id, CardKind.QuickActions, column, row, columnSpan, rowSpan);
 
     [Fact]
-    public void DefaultLayout_HasNoOverlappingPanels()
+    public void DefaultLayout_HasNoOverlappingCards()
     {
-        var panels = DashboardLayout.CreateDefault().ToList();
+        var cards = DashboardLayout.CreateDefault().Cards;
 
-        for (var i = 0; i < panels.Count; i++)
+        for (var i = 0; i < cards.Count; i++)
         {
-            for (var j = i + 1; j < panels.Count; j++)
+            for (var j = i + 1; j < cards.Count; j++)
             {
-                Assert.False(
-                    panels[i].Overlaps(panels[j]),
-                    $"{panels[i].PanelId} overlaps {panels[j].PanelId}");
+                Assert.False(cards[i].Overlaps(cards[j]), $"{cards[i].Id} overlaps {cards[j].Id}");
             }
         }
     }
@@ -34,43 +24,43 @@ public class DashboardLayoutTests
     [Fact]
     public void DefaultLayout_FitsEntirelyOnTheGrid()
     {
-        foreach (var panel in DashboardLayout.CreateDefault().Panels)
+        foreach (var card in DashboardLayout.CreateDefault().Cards)
         {
-            Assert.InRange(panel.Column, 0, DashboardLayout.Columns - 1);
-            Assert.InRange(panel.Row, 0, DashboardLayout.Rows - 1);
-            Assert.True(panel.Right <= DashboardLayout.Columns, $"{panel.PanelId} runs off the right");
-            Assert.True(panel.Bottom <= DashboardLayout.Rows, $"{panel.PanelId} runs off the bottom");
+            Assert.True(card.Right <= DashboardLayout.Columns, $"{card.Id} runs off the right");
+            Assert.True(card.Bottom <= DashboardLayout.Rows, $"{card.Id} runs off the bottom");
+            Assert.True(card.Column >= 0 && card.Row >= 0);
         }
     }
 
     [Fact]
-    public void DefaultLayout_GivesTheDeskMostOfTheHeight()
+    public void DefaultLayout_GivesTheMixerMostOfTheHeight()
     {
-        // The complaint this default answers: full-width sliders eating the top
-        // while the strips float in dead space.
-        var desk = DashboardLayout.CreateDefault().Get(DashboardLayout.DeskPanel)!;
+        // The complaint this answers: full-width sliders eating the top while
+        // the strips float in dead space.
+        var mixer = DashboardLayout.CreateDefault().Cards.Single(c => c.Kind == CardKind.AppMixer);
 
-        Assert.True(desk.RowSpan >= DashboardLayout.Rows / 2, "the desk should own the majority of the height");
-        Assert.Equal(DashboardLayout.Columns, desk.ColumnSpan);
+        Assert.True(mixer.RowSpan >= DashboardLayout.Rows / 2);
+        Assert.Equal(DashboardLayout.Columns, mixer.ColumnSpan);
     }
 
     [Fact]
     public void DefaultLayout_DoesNotStretchMasterAcrossTheFullWidth()
     {
-        var master = DashboardLayout.CreateDefault().Get(DashboardLayout.MasterPanel)!;
+        var master = DashboardLayout.CreateDefault().Cards.Single(c => c.Kind == CardKind.MasterOutput);
 
         Assert.True(master.ColumnSpan < DashboardLayout.Columns);
     }
 
     [Fact]
-    public void MovingPastTheRightEdge_SlidesBackOnScreen()
+    public void MovingPastAnEdge_SlidesBackOnScreen()
     {
         var layout = DashboardLayout.CreateDefault();
 
-        layout.Move(DashboardLayout.MasterPanel, column: 50, row: 0);
-        var master = layout.Get(DashboardLayout.MasterPanel)!;
+        layout.Move("master", column: 99, row: 99);
+        var master = layout.Get("master")!;
 
         Assert.True(master.Right <= DashboardLayout.Columns);
+        Assert.True(master.Bottom <= DashboardLayout.Rows);
     }
 
     [Fact]
@@ -78,85 +68,127 @@ public class DashboardLayoutTests
     {
         var layout = DashboardLayout.CreateDefault();
 
-        layout.Move(DashboardLayout.MasterPanel, column: -8, row: -3);
-        var master = layout.Get(DashboardLayout.MasterPanel)!;
+        layout.Move("master", column: -5, row: -5);
+        var master = layout.Get("master")!;
 
         Assert.Equal(0, master.Column);
         Assert.Equal(0, master.Row);
     }
 
     [Fact]
-    public void ResizingBelowTheMinimum_KeepsAPanelUsable()
+    public void ResizingBelowTheMinimum_KeepsACardUsable()
     {
         var layout = DashboardLayout.CreateDefault();
 
-        layout.Resize(DashboardLayout.StatusPanel, columnSpan: 0, rowSpan: 0);
-        var status = layout.Get(DashboardLayout.StatusPanel)!;
+        layout.Resize("status", columnSpan: 0, rowSpan: 0);
+        var status = layout.Get("status")!;
 
         Assert.Equal(DashboardLayout.MinimumSpan, status.ColumnSpan);
         Assert.Equal(DashboardLayout.MinimumSpan, status.RowSpan);
     }
 
     [Fact]
-    public void ResizingBeyondTheGrid_IsClampedToFit()
+    public void GrowingACardAtTheEdge_PullsItBackRatherThanOverflowing()
     {
-        var layout = DashboardLayout.CreateDefault();
+        var layout = new DashboardLayout();
+        layout.Add(Card("a", column: 10, row: 10, columnSpan: 2, rowSpan: 2));
 
-        layout.Resize(DashboardLayout.DeskPanel, columnSpan: 99, rowSpan: 99);
-        var desk = layout.Get(DashboardLayout.DeskPanel)!;
+        layout.Resize("a", columnSpan: 6, rowSpan: 6);
+        var card = layout.Get("a")!;
 
-        Assert.True(desk.Right <= DashboardLayout.Columns);
-        Assert.True(desk.Bottom <= DashboardLayout.Rows);
+        Assert.Equal(6, card.ColumnSpan);
+        Assert.True(card.Right <= DashboardLayout.Columns);
+        Assert.True(card.Bottom <= DashboardLayout.Rows);
     }
 
     [Fact]
-    public void GrowingAPanelAtTheEdge_PullsItBackRatherThanOverflowing()
+    public void TheSameKindCanBePlacedMoreThanOnce()
+    {
+        var layout = new DashboardLayout();
+        layout.Add(new DashboardCard("one", CardKind.MasterOutput, 0, 0, 3, 3));
+        layout.Add(new DashboardCard("two", CardKind.MasterOutput, 3, 0, 3, 3));
+
+        Assert.Equal(2, layout.Cards.Count);
+    }
+
+    [Fact]
+    public void RemovingACard_LeavesTheRest()
     {
         var layout = DashboardLayout.CreateDefault();
-        layout.Move(DashboardLayout.StatusPanel, column: 10, row: 10);
+        var before = layout.Cards.Count;
 
-        layout.Resize(DashboardLayout.StatusPanel, columnSpan: 6, rowSpan: 6);
-        var status = layout.Get(DashboardLayout.StatusPanel)!;
+        layout.Remove("status");
 
-        Assert.Equal(6, status.ColumnSpan);
-        Assert.True(status.Right <= DashboardLayout.Columns);
-        Assert.True(status.Bottom <= DashboardLayout.Rows);
+        Assert.Equal(before - 1, layout.Cards.Count);
+        Assert.Null(layout.Get("status"));
+    }
+
+    [Fact]
+    public void FindFreeSlot_AvoidsExistingCards()
+    {
+        var layout = new DashboardLayout();
+        layout.Add(Card("a", 0, 0, columnSpan: 6, rowSpan: 6));
+
+        var slot = FindSlotOrFail(layout, 3, 3);
+        var candidate = new DashboardCard("new", CardKind.QuickActions, slot.Column, slot.Row, 3, 3);
+
+        Assert.DoesNotContain(layout.Cards, existing => existing.Overlaps(candidate));
+    }
+
+    [Fact]
+    public void FindFreeSlot_ReturnsNullWhenTheGridIsFull()
+    {
+        var layout = new DashboardLayout();
+        layout.Add(Card("full", 0, 0, DashboardLayout.Columns, DashboardLayout.Rows));
+
+        Assert.Null(layout.FindFreeSlot(3, 3));
+    }
+
+    [Fact]
+    public void FindFreeSlot_OnAnEmptyGridStartsAtTheOrigin()
+    {
+        var slot = FindSlotOrFail(new DashboardLayout(), 4, 4);
+
+        Assert.Equal((0, 0), slot);
     }
 
     [Fact]
     public void SavedLayout_SurvivesARoundTrip()
     {
         var original = DashboardLayout.CreateDefault();
-        original.Move(DashboardLayout.DeskPanel, column: 0, row: 4);
+        original.Move("mixer", column: 0, row: 4);
 
-        var restored = DashboardLayout.FromPanels(original.ToList());
+        var restored = DashboardLayout.FromCards(original.Cards);
 
-        Assert.Equal(original.Get(DashboardLayout.DeskPanel), restored.Get(DashboardLayout.DeskPanel));
+        Assert.Equal(original.Get("mixer"), restored.Get("mixer"));
     }
 
     [Fact]
-    public void LayoutSavedBeforeAPanelExisted_GainsItFromTheDefault()
+    public void EmptySavedLayout_FallsBackToTheDefault()
     {
-        // Guards the upgrade path: a layout saved by an older version must not
-        // make newer panels disappear.
-        var partial = new[] { new PanelLayout(DashboardLayout.MasterPanel, 0, 0, 4, 3) };
+        // An empty dashboard would be a blank screen with no obvious way back.
+        var restored = DashboardLayout.FromCards([]);
 
-        var restored = DashboardLayout.FromPanels(partial);
-
-        Assert.NotNull(restored.Get(DashboardLayout.DeskPanel));
-        Assert.NotNull(restored.Get(DashboardLayout.StatusPanel));
+        Assert.NotEmpty(restored.Cards);
     }
 
     [Fact]
-    public void OverlapDetection_IsSymmetricAndExcludesTouchingEdges()
+    public void OverlapDetection_TreatsSharedEdgesAsSeparate()
     {
-        var left = new PanelLayout("a", 0, 0, 4, 4);
-        var right = new PanelLayout("b", 4, 0, 4, 4);
-        var covering = new PanelLayout("c", 2, 2, 4, 4);
+        var left = Card("a", 0, 0, columnSpan: 4, rowSpan: 4);
+        var right = Card("b", 4, 0, columnSpan: 4, rowSpan: 4);
+        var covering = Card("c", 2, 2, columnSpan: 4, rowSpan: 4);
 
-        Assert.False(left.Overlaps(right), "panels sharing an edge do not overlap");
+        Assert.False(left.Overlaps(right));
         Assert.False(right.Overlaps(left));
         Assert.True(left.Overlaps(covering));
         Assert.True(covering.Overlaps(left));
+    }
+
+    private static (int Column, int Row) FindSlotOrFail(DashboardLayout layout, int columnSpan, int rowSpan)
+    {
+        var slot = layout.FindFreeSlot(columnSpan, rowSpan);
+        Assert.NotNull(slot);
+        return slot!.Value;
     }
 }

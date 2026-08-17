@@ -1,28 +1,55 @@
 namespace Blight.Blare.Core.Layout;
 
-/// <summary>Where one panel sits on the dashboard grid.</summary>
-public sealed record PanelLayout(string PanelId, int Column, int Row, int ColumnSpan, int RowSpan)
+/// <summary>
+/// The kinds of card a user can place on the dashboard.
+///
+/// Deliberately a closed set: Blare supplies the cards, the user decides which
+/// ones exist and where they sit. That keeps every card something we can hold
+/// to a standard, while the arrangement stays entirely theirs.
+/// </summary>
+public enum CardKind
+{
+    /// <summary>Channel strips for everything currently playing.</summary>
+    AppMixer,
+
+    /// <summary>The default output device's volume.</summary>
+    MasterOutput,
+
+    /// <summary>Every other output device, each with its own fader.</summary>
+    OtherOutputs,
+
+    /// <summary>Speaker volume built into displays, over DDC/CI.</summary>
+    DisplaySpeakers,
+
+    /// <summary>Warnings raised and time spent loud.</summary>
+    HearingStatus,
+
+    /// <summary>Mute all, unmute all, clear focus.</summary>
+    QuickActions,
+
+    /// <summary>The loudest app right now, at a glance.</summary>
+    NowPlaying,
+}
+
+/// <summary>One placed card. <paramref name="Id"/> is unique per instance so the same kind can appear more than once.</summary>
+public sealed record DashboardCard(string Id, CardKind Kind, int Column, int Row, int ColumnSpan, int RowSpan)
 {
     public int Right => Column + ColumnSpan;
 
     public int Bottom => Row + RowSpan;
 
-    public bool Overlaps(PanelLayout other) =>
+    public bool Overlaps(DashboardCard other) =>
         Column < other.Right && other.Column < Right &&
         Row < other.Bottom && other.Row < Bottom;
 }
 
 /// <summary>
-/// The arrangement of the mixer's panels.
+/// The dashboard: a grid of cards the user arranges.
 ///
-/// Everything on the main screen is a panel the user can move and resize, so
-/// the layout is data rather than markup. The shipped default still has to be
-/// good on its own — being rearrangeable is not an excuse for a poor starting
-/// point — so <see cref="CreateDefault"/> is the considered layout, not an
-/// empty canvas.
-///
-/// Geometry lives here, away from the UI, because clamping and overlap are
-/// exactly the sort of thing that is easy to get subtly wrong and easy to test.
+/// Geometry lives here rather than in the UI because clamping, overlap and
+/// finding a free slot are easy to get subtly wrong and easy to test. The
+/// shipped default still has to be good on its own — being rearrangeable is no
+/// excuse for a poor starting point.
 /// </summary>
 public sealed class DashboardLayout
 {
@@ -30,92 +57,96 @@ public sealed class DashboardLayout
     public const int Rows = 12;
     public const int MinimumSpan = 2;
 
-    public const string MasterPanel = "master";
-    public const string DisplaysPanel = "displays";
-    public const string StatusPanel = "status";
-    public const string DeskPanel = "desk";
+    private readonly List<DashboardCard> _cards = new();
 
-    private readonly Dictionary<string, PanelLayout> _panels = new();
+    public IReadOnlyList<DashboardCard> Cards => _cards;
 
-    public IReadOnlyCollection<PanelLayout> Panels => _panels.Values;
+    public DashboardCard? Get(string id) => _cards.FirstOrDefault(c => c.Id == id);
 
-    public PanelLayout? Get(string panelId) => _panels.GetValueOrDefault(panelId);
-
-    public void Set(PanelLayout panel) => _panels[panel.PanelId] = Clamp(panel);
-
-    /// <summary>
-    /// The default arrangement: master and displays share the top row rather
-    /// than each spanning the full width, and the desk takes the whole lower
-    /// two-thirds so channel strips get the room they actually need.
-    /// </summary>
+    /// <summary>The arrangement shipped out of the box, and what "Reset layout" restores.</summary>
     public static DashboardLayout CreateDefault()
     {
         var layout = new DashboardLayout();
 
-        layout.Set(new PanelLayout(MasterPanel, Column: 0, Row: 0, ColumnSpan: 5, RowSpan: 3));
-        layout.Set(new PanelLayout(DisplaysPanel, Column: 5, Row: 0, ColumnSpan: 4, RowSpan: 3));
-        layout.Set(new PanelLayout(StatusPanel, Column: 9, Row: 0, ColumnSpan: 3, RowSpan: 3));
-        layout.Set(new PanelLayout(DeskPanel, Column: 0, Row: 3, ColumnSpan: 12, RowSpan: 9));
+        layout.Add(new DashboardCard("master", CardKind.MasterOutput, 0, 0, 5, 3));
+        layout.Add(new DashboardCard("status", CardKind.HearingStatus, 5, 0, 4, 3));
+        layout.Add(new DashboardCard("actions", CardKind.QuickActions, 9, 0, 3, 3));
+        layout.Add(new DashboardCard("mixer", CardKind.AppMixer, 0, 3, 12, 9));
 
         return layout;
     }
 
-    /// <summary>Moves a panel, keeping it wholly on the grid.</summary>
-    public void Move(string panelId, int column, int row)
+    public void Add(DashboardCard card) => _cards.Add(Clamp(card));
+
+    public void Remove(string id) => _cards.RemoveAll(c => c.Id == id);
+
+    public void Move(string id, int column, int row) =>
+        Replace(id, card => card with { Column = column, Row = row });
+
+    public void Resize(string id, int columnSpan, int rowSpan) =>
+        Replace(id, card => card with { ColumnSpan = columnSpan, RowSpan = rowSpan });
+
+    /// <summary>
+    /// Finds somewhere a new card of the given size will fit without covering
+    /// an existing one, scanning left to right, top to bottom. Returns null when
+    /// the grid is full, so the UI can say so rather than stacking cards.
+    /// </summary>
+    public (int Column, int Row)? FindFreeSlot(int columnSpan, int rowSpan)
     {
-        if (_panels.TryGetValue(panelId, out var panel))
+        var width = Math.Clamp(columnSpan, MinimumSpan, Columns);
+        var height = Math.Clamp(rowSpan, MinimumSpan, Rows);
+
+        for (var row = 0; row <= Rows - height; row++)
         {
-            _panels[panelId] = Clamp(panel with { Column = column, Row = row });
-        }
-    }
-
-    /// <summary>Resizes a panel, keeping it at least the minimum span and wholly on the grid.</summary>
-    public void Resize(string panelId, int columnSpan, int rowSpan)
-    {
-        if (_panels.TryGetValue(panelId, out var panel))
-        {
-            _panels[panelId] = Clamp(panel with { ColumnSpan = columnSpan, RowSpan = rowSpan });
-        }
-    }
-
-    public IReadOnlyList<PanelLayout> ToList() => _panels.Values.ToList();
-
-    public static DashboardLayout FromPanels(IEnumerable<PanelLayout> panels)
-    {
-        var layout = new DashboardLayout();
-
-        foreach (var panel in panels)
-        {
-            layout.Set(panel);
-        }
-
-        // A saved layout from an older version may be missing panels added
-        // since; fill them from the default rather than dropping them.
-        foreach (var fallback in CreateDefault().Panels)
-        {
-            if (!layout._panels.ContainsKey(fallback.PanelId))
+            for (var column = 0; column <= Columns - width; column++)
             {
-                layout.Set(fallback);
+                var candidate = new DashboardCard("probe", CardKind.AppMixer, column, row, width, height);
+
+                if (!_cards.Any(existing => existing.Overlaps(candidate)))
+                {
+                    return (column, row);
+                }
             }
         }
 
-        return layout;
+        return null;
     }
 
-    private static PanelLayout Clamp(PanelLayout panel)
+    public static DashboardLayout FromCards(IEnumerable<DashboardCard> cards)
     {
-        var columnSpan = Math.Clamp(panel.ColumnSpan, MinimumSpan, Columns);
-        var rowSpan = Math.Clamp(panel.RowSpan, MinimumSpan, Rows);
+        var layout = new DashboardLayout();
 
-        // Clamp the origin after the span, so a panel dragged toward the edge
-        // slides back inside rather than being silently shrunk.
-        var column = Math.Clamp(panel.Column, 0, Columns - columnSpan);
-        var row = Math.Clamp(panel.Row, 0, Rows - rowSpan);
-
-        return panel with
+        foreach (var card in cards)
         {
-            Column = column,
-            Row = row,
+            layout.Add(card);
+        }
+
+        // An empty or unreadable saved layout would leave a blank screen with no
+        // obvious way back, so fall back to the default instead.
+        return layout._cards.Count == 0 ? CreateDefault() : layout;
+    }
+
+    private void Replace(string id, Func<DashboardCard, DashboardCard> update)
+    {
+        var index = _cards.FindIndex(c => c.Id == id);
+
+        if (index >= 0)
+        {
+            _cards[index] = Clamp(update(_cards[index]));
+        }
+    }
+
+    private static DashboardCard Clamp(DashboardCard card)
+    {
+        var columnSpan = Math.Clamp(card.ColumnSpan, MinimumSpan, Columns);
+        var rowSpan = Math.Clamp(card.RowSpan, MinimumSpan, Rows);
+
+        // Clamp the origin after the span so a card dragged toward an edge
+        // slides back inside rather than being silently shrunk.
+        return card with
+        {
+            Column = Math.Clamp(card.Column, 0, Columns - columnSpan),
+            Row = Math.Clamp(card.Row, 0, Rows - rowSpan),
             ColumnSpan = columnSpan,
             RowSpan = rowSpan,
         };

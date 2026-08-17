@@ -2,6 +2,7 @@ using Blight.Blare.App.Services;
 using Blight.Blare.Audio.Analysis;
 using Blight.Blare.Audio.Devices;
 using Blight.Blare.Audio.Sessions;
+using Blight.Blare.Core.Layout;
 using Blight.Blare.Core.Safety;
 using Blight.Blare.Core.Settings;
 using Microsoft.Extensions.DependencyInjection;
@@ -55,10 +56,14 @@ public partial class App : Application
         // delays startup.
         CrashLog.FireAndForget(updates.CheckAsync(notify: true));
 
+        var closeBehavior = Services.GetRequiredService<WindowCloseBehavior>();
+        await closeBehavior.LoadAsync();
+
         var startup = Services.GetRequiredService<StartupService>();
         await startup.LoadAsync();
 
         _mainWindow = Services.GetRequiredService<MainWindow>();
+        closeBehavior.Attach(_mainWindow);
 
         // Launched by Windows at sign-in: stay in the tray rather than throwing
         // a window over whatever the user is doing.
@@ -100,6 +105,8 @@ public partial class App : Application
         services.AddSingleton<FlyoutService>();
         services.AddSingleton<UpdateService>();
         services.AddSingleton<StartupService>();
+        services.AddSingleton<DashboardStore>();
+        services.AddSingleton<WindowCloseBehavior>();
         services.AddSingleton<ThemeService>();
         services.AddSingleton<BackdropService>();
         services.AddSingleton(new AppPaths(settingsDirectory));

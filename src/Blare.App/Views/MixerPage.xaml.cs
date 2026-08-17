@@ -6,26 +6,33 @@ using Blight.Blare.App.ViewModels;
 using Blight.Blare.Audio.Analysis;
 using Blight.Blare.Audio.Devices;
 using Blight.Blare.Audio.Sessions;
+using Blight.Blare.Core.Layout;
 using Blight.Blare.Core.Mixing;
 using Blight.Blare.Core.Settings;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Shapes;
 
 namespace Blight.Blare.App.Views;
 
 public sealed partial class MixerPage : Page
 {
+    private const double CardGap = 8;
+
     private readonly AudioSessionManager _sessionManager;
     private readonly AudioDeviceManager _deviceManager;
+    private readonly MonitorVolumeController _monitorVolume;
     private readonly SessionVolumeStore _volumeStore;
     private readonly SafetyMonitor _safetyMonitor;
     private readonly VolumeCoordinator _volumeCoordinator;
     private readonly SpectrumMonitor _spectrumMonitor;
-    private readonly MonitorVolumeController _monitorVolume;
+    private readonly DashboardStore _dashboardStore;
     private readonly SessionGroupTracker _groupTracker = new();
     private readonly IconResolver _iconResolver = new();
+
     private readonly DispatcherQueueTimer _safetyTimer;
     private readonly DispatcherQueueTimer _meterTimer;
     private readonly DispatcherQueueTimer _sessionTimer;
@@ -36,7 +43,22 @@ public sealed partial class MixerPage : Page
     /// <summary>Every live process backing each app strip, so a fader moves all of them.</summary>
     private readonly Dictionary<string, List<uint>> _processesByApp = new();
 
+    private readonly List<DashboardCardHost> _hosts = new();
     private readonly double[] _bandScratch;
+
+    // Built at runtime by the card content, so any of these may be absent when
+    // the user has removed that card.
+    private StackPanel? _stripsPanel;
+    private TextBlock? _emptyState;
+    private Slider? _masterVolumeSlider;
+    private TextBlock? _masterVolumeText;
+    private TextBlock? _masterDeviceNameText;
+    private TextBlock? _warningCountText;
+    private TextBlock? _exposureText;
+    private Ellipse? _warningDot;
+    private Ellipse? _exposureDot;
+    private TextBlock? _nowPlayingText;
+    private TextBlock? _nowPlayingDetail;
 
     private bool _suppressMasterVolumePush;
     private string? _masterDeviceId;
@@ -49,19 +71,20 @@ public sealed partial class MixerPage : Page
     {
         _sessionManager = App.Services.GetRequiredService<AudioSessionManager>();
         _deviceManager = App.Services.GetRequiredService<AudioDeviceManager>();
+        _monitorVolume = App.Services.GetRequiredService<MonitorVolumeController>();
         _volumeStore = App.Services.GetRequiredService<SessionVolumeStore>();
         _safetyMonitor = App.Services.GetRequiredService<SafetyMonitor>();
         _volumeCoordinator = App.Services.GetRequiredService<VolumeCoordinator>();
         _spectrumMonitor = App.Services.GetRequiredService<SpectrumMonitor>();
-        _monitorVolume = App.Services.GetRequiredService<MonitorVolumeController>();
+        _dashboardStore = App.Services.GetRequiredService<DashboardStore>();
         _bandScratch = new double[_spectrumMonitor.BandCount];
 
         InitializeComponent();
+        BuildAddCardMenu();
 
         _safetyTimer = CreateTimer(TimeSpan.FromSeconds(5), RunSafetySample);
         _meterTimer = CreateTimer(TimeSpan.FromMilliseconds(50), RefreshMeters);
         _sessionTimer = CreateTimer(TimeSpan.FromSeconds(2), () => CrashLog.FireAndForget(RefreshSessionsAsync()));
-
 
         Unloaded += (_, _) =>
         {
@@ -87,118 +110,240 @@ public sealed partial class MixerPage : Page
     private async Task InitializeAsync()
     {
         await _volumeStore.LoadAsync();
-        RefreshMasterDevice();
-        BuildHardwareControls();
+        await _dashboardStore.LoadAsync();
+
+        RebuildDashboard();
         await RefreshSessionsAsync();
         UpdateStatusChips();
     }
 
-    /// <summary>
-    /// Adds a row per display that exposes its speaker volume over DDC/CI.
-    ///
-    /// Built once rather than polled: DDC/CI is a slow serial channel and
-    /// hammering it makes monitors unresponsive. Displays that don't answer
-    /// are simply left out, and the whole section hides when none do.
-    /// </summary>
-    private void BuildHardwareControls()
+    // ---- dashboard -----------------------------------------------------------
+
+    private void BuildAddCardMenu()
     {
-        try
+        foreach (var kind in Enum.GetValues<CardKind>())
         {
-            var controls = _monitorVolume.GetControls().Where(c => c.SupportsVolume).ToList();
-
-            HardwareRows.Children.Clear();
-
-            foreach (var control in controls)
-            {
-                HardwareRows.Children.Add(BuildHardwareRow(control));
-            }
-
-            HardwarePanel.Visibility = controls.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
-        }
-        catch (Exception ex)
-        {
-            // A monitor refusing DDC/CI must never break the mixer.
-            CrashLog.Write(ex);
-            HardwarePanel.Visibility = Visibility.Collapsed;
+            var item = new MenuFlyoutItem { Text = TitleFor(kind), Tag = kind };
+            item.Click += OnAddCardClick;
+            AddCardFlyout.Items.Add(item);
         }
     }
 
-    private UIElement BuildHardwareRow(Audio.Devices.MonitorAudioControl control)
+    private void RebuildDashboard()
     {
-        var grid = new Grid { ColumnSpacing = 12 };
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(150) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        CardCanvas.Children.Clear();
+        _hosts.Clear();
 
-        var label = new TextBlock
+        // Card content re-creates these; drop the stale references first.
+        _stripsPanel = null;
+        _emptyState = null;
+        _masterVolumeSlider = null;
+        _warningCountText = null;
+        _nowPlayingText = null;
+        _strips.Clear();
+
+        foreach (var card in _dashboardStore.Layout.Cards)
         {
-            Text = control.DisplayName,
-            FontSize = 11.5,
-            Opacity = 0.75,
-            VerticalAlignment = VerticalAlignment.Center,
-            TextTrimming = TextTrimming.CharacterEllipsis,
-        };
+            var host = new DashboardCardHost(card, TitleFor(card.Kind), BuildCardContent(card.Kind));
+            host.Changed += OnCardChanged;
+            host.RemoveButton.Click += (_, _) => RemoveCard(card.Id);
+            host.SetEditing(EditModeToggle.IsChecked == true);
 
-        var readout = new TextBlock
-        {
-            Text = $"{control.VolumePercent:F0}%",
-            FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Consolas"),
-            FontSize = 12,
-            MinWidth = 42,
-            TextAlignment = TextAlignment.Right,
-            VerticalAlignment = VerticalAlignment.Center,
-        };
+            _hosts.Add(host);
+            CardCanvas.Children.Add(host);
+        }
 
-        var slider = new Slider
-        {
-            Minimum = 0,
-            Maximum = 100,
-            Value = control.VolumePercent,
-            VerticalAlignment = VerticalAlignment.Center,
-        };
-
-        slider.ValueChanged += (_, e) =>
-        {
-            readout.Text = $"{e.NewValue:F0}%";
-
-            // Writes go straight to the display; a refusal is reported rather
-            // than silently leaving the slider somewhere the hardware isn't.
-            if (!_monitorVolume.TrySetVolumePercent(control.Index, e.NewValue))
-            {
-                readout.Text = "n/a";
-            }
-        };
-
-        Grid.SetColumn(label, 0);
-        Grid.SetColumn(slider, 1);
-        Grid.SetColumn(readout, 2);
-        grid.Children.Add(label);
-        grid.Children.Add(slider);
-        grid.Children.Add(readout);
-
-        return grid;
+        LayoutCards();
+        CrashLog.FireAndForget(RefreshSessionsAsync());
     }
+
+    private void OnSurfaceSizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        LayoutCards();
+        DrawGuides();
+    }
+
+    /// <summary>Positions every card from its grid coordinates. One place converts cells to pixels.</summary>
+    private void LayoutCards()
+    {
+        var (cellWidth, cellHeight) = CellSize();
+
+        if (cellWidth <= 0 || cellHeight <= 0)
+        {
+            return;
+        }
+
+        foreach (var host in _hosts)
+        {
+            var card = host.Card;
+
+            host.SetCellSize(cellWidth, cellHeight);
+            host.Width = Math.Max(0, card.ColumnSpan * cellWidth - CardGap);
+            host.Height = Math.Max(0, card.RowSpan * cellHeight - CardGap);
+            Canvas.SetLeft(host, card.Column * cellWidth);
+            Canvas.SetTop(host, card.Row * cellHeight);
+        }
+    }
+
+    private (double Width, double Height) CellSize() =>
+        (DashboardSurface.ActualWidth / DashboardLayout.Columns,
+         DashboardSurface.ActualHeight / DashboardLayout.Rows);
+
+    private void OnCardChanged(object? sender, Blight.Blare.Core.Layout.DashboardCard card)
+    {
+        // The model clamps, so read the corrected value back rather than trusting the drag.
+        _dashboardStore.Layout.Move(card.Id, card.Column, card.Row);
+        _dashboardStore.Layout.Resize(card.Id, card.ColumnSpan, card.RowSpan);
+
+        if (sender is DashboardCardHost host && _dashboardStore.Layout.Get(card.Id) is { } corrected)
+        {
+            host.ApplyCard(corrected);
+        }
+
+        LayoutCards();
+        CrashLog.FireAndForget(_dashboardStore.SaveAsync());
+    }
+
+    private void OnAddCardClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is not MenuFlyoutItem { Tag: CardKind kind })
+        {
+            return;
+        }
+
+        var slot = _dashboardStore.Layout.FindFreeSlot(4, 3);
+
+        if (slot is null)
+        {
+            App.Services.GetRequiredService<FlyoutService>().Show(
+                "No room for another card",
+                "Move or shrink something first.",
+                FlyoutTone.Caution,
+                TimeSpan.FromSeconds(4));
+            return;
+        }
+
+        _dashboardStore.Layout.Add(new Blight.Blare.Core.Layout.DashboardCard(
+            Guid.NewGuid().ToString("n")[..8], kind, slot.Value.Column, slot.Value.Row, 4, 3));
+
+        CrashLog.FireAndForget(_dashboardStore.SaveAsync());
+        RebuildDashboard();
+    }
+
+    private void RemoveCard(string id)
+    {
+        _dashboardStore.Layout.Remove(id);
+        CrashLog.FireAndForget(_dashboardStore.SaveAsync());
+        RebuildDashboard();
+    }
+
+    private async void OnResetLayoutClick(object sender, RoutedEventArgs e)
+    {
+        await _dashboardStore.ResetAsync();
+        RebuildDashboard();
+    }
+
+    private void OnEditModeChanged(object sender, RoutedEventArgs e)
+    {
+        var editing = EditModeToggle.IsChecked == true;
+
+        EditTools.Visibility = editing ? Visibility.Visible : Visibility.Collapsed;
+        GridGuides.Visibility = editing ? Visibility.Visible : Visibility.Collapsed;
+
+        foreach (var host in _hosts)
+        {
+            host.SetEditing(editing);
+        }
+
+        DrawGuides();
+    }
+
+    /// <summary>Faint cell lines while editing, so the snap grid is visible rather than guessed at.</summary>
+    private void DrawGuides()
+    {
+        GridGuides.Children.Clear();
+
+        if (EditModeToggle.IsChecked != true)
+        {
+            return;
+        }
+
+        var (cellWidth, cellHeight) = CellSize();
+        var stroke = Application.Current.Resources.TryGetValue("BlareStripBorder", out var value)
+            ? value as Brush
+            : null;
+
+        for (var column = 1; column < DashboardLayout.Columns; column++)
+        {
+            GridGuides.Children.Add(Guide(column * cellWidth, 0, 1, DashboardSurface.ActualHeight, stroke));
+        }
+
+        for (var row = 1; row < DashboardLayout.Rows; row++)
+        {
+            GridGuides.Children.Add(Guide(0, row * cellHeight, DashboardSurface.ActualWidth, 1, stroke));
+        }
+    }
+
+    private static Rectangle Guide(double x, double y, double width, double height, Brush? stroke)
+    {
+        var line = new Rectangle { Width = width, Height = height, Fill = stroke, Opacity = 0.35 };
+        Canvas.SetLeft(line, x);
+        Canvas.SetTop(line, y);
+        return line;
+    }
+
+    // ---- quick actions -------------------------------------------------------
+
+    private void SetAllMuted(bool muted)
+    {
+        foreach (var viewModel in _strips.Values.Select(s => s.ViewModel).Where(v => v is not null))
+        {
+            viewModel!.IsMuted = muted;
+        }
+    }
+
+    private void SetAllVolume(double percent)
+    {
+        foreach (var viewModel in _strips.Values.Select(s => s.ViewModel).Where(v => v is not null))
+        {
+            viewModel!.VolumePercent = percent;
+        }
+    }
+
+    // ---- devices -------------------------------------------------------------
 
     private void RefreshMasterDevice()
     {
         var defaultDevice = _deviceManager.GetRenderDevices().FirstOrDefault(d => d.IsDefault);
-        if (defaultDevice is null)
+
+        if (defaultDevice is null || _masterVolumeSlider is null)
         {
             return;
         }
 
         _masterDeviceId = defaultDevice.DeviceId;
-        MasterDeviceNameText.Text = defaultDevice.DisplayName;
+
+        if (_masterDeviceNameText is not null)
+        {
+            _masterDeviceNameText.Text = defaultDevice.DisplayName;
+        }
 
         _suppressMasterVolumePush = true;
-        MasterVolumeSlider.Value = Math.Round(_deviceManager.GetMasterVolume(defaultDevice.DeviceId) * 100);
+        _masterVolumeSlider.Value = Math.Round(_deviceManager.GetMasterVolume(defaultDevice.DeviceId) * 100);
         _suppressMasterVolumePush = false;
-        MasterVolumeText.Text = $"{MasterVolumeSlider.Value:F0}%";
+
+        if (_masterVolumeText is not null)
+        {
+            _masterVolumeText.Text = $"{_masterVolumeSlider.Value:F0}%";
+        }
     }
 
     private void OnMasterVolumeChanged(object sender, Microsoft.UI.Xaml.Controls.Primitives.RangeBaseValueChangedEventArgs e)
     {
-        MasterVolumeText.Text = $"{e.NewValue:F0}%";
+        if (_masterVolumeText is not null)
+        {
+            _masterVolumeText.Text = $"{e.NewValue:F0}%";
+        }
 
         if (_suppressMasterVolumePush || _masterDeviceId is null)
         {
@@ -207,6 +352,8 @@ public sealed partial class MixerPage : Page
 
         _deviceManager.SetMasterVolume(_masterDeviceId, (float)(e.NewValue / 100.0));
     }
+
+    // ---- meters and safety ---------------------------------------------------
 
     private void RefreshMeters()
     {
@@ -225,27 +372,38 @@ public sealed partial class MixerPage : Page
         var warnings = _safetyMonitor.WarningCount;
         var minutesLoud = _safetyMonitor.TotalTimeAboveThreshold.TotalMinutes;
 
-        WarningCountText.Text = warnings switch
+        if (_warningCountText is not null)
         {
-            0 => "no warnings",
-            1 => "1 warning",
-            _ => $"{warnings} warnings",
-        };
-        ExposureText.Text = $"{minutesLoud:F0}m loud today";
+            _warningCountText.Text = warnings switch
+            {
+                0 => "no warnings",
+                1 => "1 warning",
+                _ => $"{warnings} warnings",
+            };
+        }
+
+        if (_exposureText is not null)
+        {
+            _exposureText.Text = $"{minutesLoud:F0}m loud today";
+        }
 
         // Dots only light when there's something to report, so a calm desk reads as calm.
-        WarningDot.Fill = BrushFor(warnings > 0 ? "BlareMeterMid" : "BlareMeterUnlit");
-        ExposureDot.Fill = BrushFor(minutesLoud >= 60 ? "BlareMeterMid" : minutesLoud > 0 ? "BlareMeterLow" : "BlareMeterUnlit");
+        if (_warningDot is not null)
+        {
+            _warningDot.Fill = BrushFor(warnings > 0 ? "BlareMeterMid" : "BlareMeterUnlit");
+        }
+
+        if (_exposureDot is not null)
+        {
+            _exposureDot.Fill = BrushFor(
+                minutesLoud >= 60 ? "BlareMeterMid" : minutesLoud > 0 ? "BlareMeterLow" : "BlareMeterUnlit");
+        }
     }
 
-    private static Microsoft.UI.Xaml.Media.Brush BrushFor(string resourceKey) =>
-        (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources[resourceKey];
+    private static Brush BrushFor(string resourceKey) => (Brush)Application.Current.Resources[resourceKey];
 
     private void RunSafetySample()
     {
-        // Loudness is judged from measured output, not slider positions — see
-        // SafetyMonitor. Peaks come straight from the live sessions, taking the
-        // loudest process where an app spans several.
         var peaksByApp = new Dictionary<string, double>();
 
         foreach (var session in _sessionManager.GetSessionsForDefaultDevice())
@@ -266,11 +424,11 @@ public sealed partial class MixerPage : Page
             peaksByApp[appKey] = Math.Max(peaksByApp.GetValueOrDefault(appKey), session.PeakLevel);
         }
 
+        UpdateNowPlaying(peaksByApp);
+
         var masterVolume = _masterDeviceId is null ? 1.0 : _deviceManager.GetMasterVolume(_masterDeviceId);
         var warned = _safetyMonitor.Sample(
-            peaksByApp.Select(pair => (pair.Key, pair.Value)),
-            masterVolume,
-            DateTimeOffset.UtcNow);
+            peaksByApp.Select(pair => (pair.Key, pair.Value)), masterVolume, DateTimeOffset.UtcNow);
 
         UpdateStatusChips();
 
@@ -284,12 +442,49 @@ public sealed partial class MixerPage : Page
             .Where(pair => warned.Contains(pair.Key) && pair.Value.ViewModel is not null)
             .Select(pair => pair.Value.ViewModel!.DisplayName);
 
-        WarningInfoBar.Message = $"{string.Join(", ", names)} — running near full volume for a while. This is a relative signal level, not a measurement of sound at your ears.";
+        WarningInfoBar.Message = $"{string.Join(", ", names)} — running loud for a while. This is a relative signal level, not a measurement of sound at your ears.";
         WarningInfoBar.IsOpen = true;
     }
 
+    private void UpdateNowPlaying(Dictionary<string, double> peaksByApp)
+    {
+        if (_nowPlayingText is null)
+        {
+            return;
+        }
+
+        var loudest = peaksByApp.OrderByDescending(pair => pair.Value).FirstOrDefault();
+
+        if (loudest.Key is null || loudest.Value <= 0.001)
+        {
+            _nowPlayingText.Text = "Nothing playing";
+            if (_nowPlayingDetail is not null)
+            {
+                _nowPlayingDetail.Text = string.Empty;
+            }
+
+            return;
+        }
+
+        var viewModel = _strips.TryGetValue(loudest.Key, out var strip) ? strip.ViewModel : null;
+        _nowPlayingText.Text = viewModel?.DisplayName ?? loudest.Key;
+
+        if (_nowPlayingDetail is not null)
+        {
+            _nowPlayingDetail.Text = $"{viewModel?.VolumePercent ?? 100:F0}% · peaking at {loudest.Value:P0}";
+        }
+    }
+
+    // ---- sessions ------------------------------------------------------------
+
     public async Task RefreshSessionsAsync()
     {
+        if (_stripsPanel is null)
+        {
+            // The app mixer card isn't on the dashboard.
+            return;
+        }
+
         var now = DateTimeOffset.UtcNow;
         var ceiling = VolumeCoordinator.MaximumPercent;
 
@@ -302,24 +497,21 @@ public sealed partial class MixerPage : Page
             })
             .ToList();
 
-        // Group by app identity. Passing Guid.Empty makes the tracker key purely
-        // on that identity, which is what collapses a browser's many audio
-        // processes into a single strip; the tracker still supplies the
-        // debounce so a session briefly disappearing doesn't flicker the desk.
+        // Group by app identity. Passing Guid.Empty keys purely on that identity,
+        // which collapses a browser's many audio processes into a single strip;
+        // the tracker still supplies the debounce so a session blinking out
+        // doesn't flicker the desk.
         var snapshots = liveSessions
             .Select(entry => new SessionSnapshot(
-                AppKeyFor(entry.ExecutablePath, entry.Session.ProcessId),
-                Guid.Empty,
-                entry.Session.ProcessId))
+                AppKeyFor(entry.ExecutablePath, entry.Session.ProcessId), Guid.Empty, entry.Session.ProcessId))
             .ToList();
 
         var rows = _groupTracker.Reconcile(snapshots, now);
-        var survivingKeys = rows.Select(row => row.GroupKey).ToHashSet();
+        var surviving = rows.Select(row => row.GroupKey).ToHashSet();
 
-        // Remove strips the tracker has finished debouncing away.
-        foreach (var goneKey in _strips.Keys.Where(key => !survivingKeys.Contains(key)).ToList())
+        foreach (var goneKey in _strips.Keys.Where(key => !surviving.Contains(key)).ToList())
         {
-            StripsPanel.Children.Remove(_strips[goneKey]);
+            _stripsPanel.Children.Remove(_strips[goneKey]);
             _strips.Remove(goneKey);
             _processesByApp.Remove(goneKey);
         }
@@ -327,8 +519,7 @@ public sealed partial class MixerPage : Page
         _processesByApp.Clear();
         foreach (var entry in liveSessions)
         {
-            var appKey = AppKeyFor(entry.ExecutablePath, entry.Session.ProcessId);
-            var groupKey = SessionGroupTracker.ComputeGroupKey(Guid.Empty, appKey, entry.Session.ProcessId);
+            var groupKey = GroupKeyFor(entry.ExecutablePath, entry.Session.ProcessId);
 
             if (!_processesByApp.TryGetValue(groupKey, out var processes))
             {
@@ -341,20 +532,16 @@ public sealed partial class MixerPage : Page
 
         foreach (var entry in liveSessions)
         {
-            var appKey = AppKeyFor(entry.ExecutablePath, entry.Session.ProcessId);
-            var groupKey = SessionGroupTracker.ComputeGroupKey(Guid.Empty, appKey, entry.Session.ProcessId);
+            var groupKey = GroupKeyFor(entry.ExecutablePath, entry.Session.ProcessId);
 
-            if (_strips.TryGetValue(groupKey, out var existingStrip))
+            if (_strips.TryGetValue(groupKey, out var existing))
             {
-                SyncExistingStrip(existingStrip, entry.Session, ceiling);
+                SyncExistingStrip(existing, entry.Session, ceiling);
                 continue;
             }
 
             var liveVolumePercent = Math.Round(entry.Session.Volume * 100);
 
-            // Clamp to the current ceiling: stored levels can predate a lower
-            // ceiling (a 150% value saved while boost sliders went that high),
-            // and restoring one raw would be out of range for the audio APIs.
             double? savedVolumePercent = null;
             if (!string.IsNullOrEmpty(entry.ExecutablePath)
                 && _volumeStore.GetVolume(entry.ExecutablePath) is { } stored)
@@ -364,7 +551,7 @@ public sealed partial class MixerPage : Page
 
             if (savedVolumePercent is { } saved && Math.Abs(saved - liveVolumePercent) > 0.5)
             {
-                _sessionManager.SetVolume(entry.Session.ProcessId, (float)(saved / 100.0));
+                _volumeCoordinator.SetVolumePercent(entry.Session.ProcessId, saved);
             }
 
             var viewModel = new SessionRowViewModel
@@ -384,7 +571,7 @@ public sealed partial class MixerPage : Page
             strip.FocusRequested += (_, key) => CrashLog.FireAndForget(ToggleFocusAsync(key));
 
             _strips[groupKey] = strip;
-            StripsPanel.Children.Add(strip);
+            _stripsPanel.Children.Add(strip);
 
             if (!string.IsNullOrEmpty(entry.ExecutablePath))
             {
@@ -394,8 +581,14 @@ public sealed partial class MixerPage : Page
 
         UpdateMeteredProcesses();
 
-        EmptyStateText.Visibility = _strips.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        if (_emptyState is not null)
+        {
+            _emptyState.Visibility = _strips.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        }
     }
+
+    private static string GroupKeyFor(string executablePath, uint processId) =>
+        SessionGroupTracker.ComputeGroupKey(Guid.Empty, AppKeyFor(executablePath, processId), processId);
 
     private void SyncExistingStrip(ChannelStrip strip, AudioSessionInfo session, double ceiling)
     {
@@ -404,15 +597,12 @@ public sealed partial class MixerPage : Page
             return;
         }
 
-        // Mute can be changed outside Blare (Windows' own mixer, the app itself),
-        // so keep the strip honest about the real OS state.
+        // Mute can be changed outside Blare, so keep the strip honest about the real OS state.
         if (viewModel.IsMuted != session.IsMuted)
         {
             viewModel.IsMuted = session.IsMuted;
         }
 
-        // The safe-boost ceiling can be granted or revoked while strips are
-        // live; pull anything now over the limit back down.
         if (Math.Abs(viewModel.MaxVolumePercent - ceiling) > 0.5)
         {
             viewModel.MaxVolumePercent = ceiling;
@@ -424,21 +614,15 @@ public sealed partial class MixerPage : Page
     }
 
     /// <summary>
-    /// Captures every process backing an app, up to a cap.
-    ///
-    /// Watching only the "loudest" process doesn't work: which process of a
-    /// multi-process app is actually rendering changes moment to moment, and
-    /// picking one by an instantaneous peak reading leaves the meter dead
-    /// whenever the sound is coming from a different one. Bands are merged by
-    /// taking the loudest per band.
+    /// Captures every process backing an app, up to a cap. Watching only the
+    /// "loudest" one leaves the meter dead whenever a different process of a
+    /// multi-process app is the one actually rendering.
     /// </summary>
     private void UpdateMeteredProcesses()
     {
         const int maxStreamsPerApp = 4;
 
-        var wanted = _processesByApp
-            .SelectMany(pair => pair.Value.Take(maxStreamsPerApp))
-            .ToHashSet();
+        var wanted = _processesByApp.SelectMany(pair => pair.Value.Take(maxStreamsPerApp)).ToHashSet();
 
         foreach (var stale in _spectrumMonitor.WatchedProcesses.Where(pid => !wanted.Contains(pid)))
         {
@@ -448,72 +632,6 @@ public sealed partial class MixerPage : Page
         foreach (var processId in wanted)
         {
             _spectrumMonitor.Watch(processId);
-        }
-    }
-
-    /// <summary>Makes one app dominant by ducking the rest, or releases a focus already in place.</summary>
-    public async Task ToggleFocusAsync(string appKey)
-    {
-        // Focusing a second app while one is already focused should swap, not stack.
-        if (_focusedAppKey == appKey)
-        {
-            await ReleaseFocusAsync();
-            return;
-        }
-
-        _levelsBeforeFocus ??= CurrentLevels();
-        _focusedAppKey = appKey;
-
-        await ApplyLevelsAsync(FocusMix.Apply(CurrentLevels(), appKey));
-        UpdateFocusIndicator();
-    }
-
-    private void OnFocusBannerClosed(InfoBar sender, object args) => CrashLog.FireAndForget(ReleaseFocusAsync());
-
-    public async Task ReleaseFocusAsync()
-    {
-        if (_levelsBeforeFocus is null)
-        {
-            return;
-        }
-
-        await ApplyLevelsAsync(FocusMix.Restore(_levelsBeforeFocus, _strips.Keys));
-
-        _levelsBeforeFocus = null;
-        _focusedAppKey = null;
-        UpdateFocusIndicator();
-    }
-
-    private IReadOnlyList<FocusLevel> CurrentLevels() =>
-        _strips
-            .Where(pair => pair.Value.ViewModel is not null)
-            .Select(pair => new FocusLevel(pair.Key, pair.Value.ViewModel!.VolumePercent))
-            .ToList();
-
-    private async Task ApplyLevelsAsync(IReadOnlyList<FocusLevel> levels)
-    {
-        foreach (var level in levels)
-        {
-            if (_strips.TryGetValue(level.AppKey, out var strip) && strip.ViewModel is { } viewModel)
-            {
-                viewModel.VolumePercent = level.VolumePercent;
-                await ApplyVolumeChangeAsync(viewModel);
-            }
-        }
-    }
-
-    private void UpdateFocusIndicator()
-    {
-        foreach (var (appKey, strip) in _strips)
-        {
-            strip.SetFocused(_focusedAppKey == appKey);
-        }
-
-        FocusBanner.IsOpen = _focusedAppKey is not null;
-
-        if (_focusedAppKey is not null && _strips.TryGetValue(_focusedAppKey, out var focusedStrip))
-        {
-            FocusBanner.Message = $"{focusedStrip.ViewModel?.DisplayName} is in focus — everything else is ducked. Raise master to bring the level up.";
         }
     }
 
@@ -558,15 +676,12 @@ public sealed partial class MixerPage : Page
 
     private async Task ApplyVolumeChangeAsync(SessionRowViewModel viewModel)
     {
-        // Dragging a fader unmutes, matching the Windows mixer. Reflect that in
-        // the view model too, otherwise the strip keeps showing a mute state the
-        // OS no longer has.
+        // Dragging a fader unmutes, matching the Windows mixer.
         if (viewModel.IsMuted)
         {
             viewModel.IsMuted = false;
         }
 
-        // Applies to every process behind the app, so a browser's renderers move together.
         foreach (var processId in ProcessesFor(viewModel))
         {
             _volumeCoordinator.SetVolumePercent(processId, viewModel.VolumePercent);
@@ -577,6 +692,63 @@ public sealed partial class MixerPage : Page
         if (!string.IsNullOrEmpty(viewModel.ExecutablePath))
         {
             await _volumeStore.SetVolumeAsync(viewModel.ExecutablePath, viewModel.VolumePercent);
+        }
+    }
+
+    // ---- focus ---------------------------------------------------------------
+
+    public async Task ToggleFocusAsync(string appKey)
+    {
+        if (_focusedAppKey == appKey)
+        {
+            await ReleaseFocusAsync();
+            return;
+        }
+
+        _levelsBeforeFocus ??= CurrentLevels();
+        _focusedAppKey = appKey;
+
+        await ApplyLevelsAsync(FocusMix.Apply(CurrentLevels(), appKey));
+        UpdateFocusIndicator();
+    }
+
+    public async Task ReleaseFocusAsync()
+    {
+        if (_levelsBeforeFocus is null)
+        {
+            return;
+        }
+
+        await ApplyLevelsAsync(FocusMix.Restore(_levelsBeforeFocus, _strips.Keys));
+
+        _levelsBeforeFocus = null;
+        _focusedAppKey = null;
+        UpdateFocusIndicator();
+    }
+
+    private IReadOnlyList<FocusLevel> CurrentLevels() =>
+        _strips
+            .Where(pair => pair.Value.ViewModel is not null)
+            .Select(pair => new FocusLevel(pair.Key, pair.Value.ViewModel!.VolumePercent))
+            .ToList();
+
+    private async Task ApplyLevelsAsync(IReadOnlyList<FocusLevel> levels)
+    {
+        foreach (var level in levels)
+        {
+            if (_strips.TryGetValue(level.AppKey, out var strip) && strip.ViewModel is { } viewModel)
+            {
+                viewModel.VolumePercent = level.VolumePercent;
+                await ApplyVolumeChangeAsync(viewModel);
+            }
+        }
+    }
+
+    private void UpdateFocusIndicator()
+    {
+        foreach (var (appKey, strip) in _strips)
+        {
+            strip.SetFocused(_focusedAppKey == appKey);
         }
     }
 
@@ -592,7 +764,7 @@ public sealed partial class MixerPage : Page
         }
         catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception or ArgumentException)
         {
-            // Process exited between enumeration and lookup, or access is restricted (protected process).
+            // Process exited between enumeration and lookup, or access is restricted.
             return ($"pid {session.ProcessId}", string.Empty);
         }
     }
