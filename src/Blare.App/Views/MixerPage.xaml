@@ -61,6 +61,9 @@
         <!-- The dashboard: a 12x12 cell grid the user arranges. -->
         <Grid x:Name="DashboardSurface" Grid.Row="2" SizeChanged="OnSurfaceSizeChanged">
             <Canvas x:Name="GridGuides" IsHitTestVisible="False" Visibility="Collapsed" />
+            <!-- Its own layer: the guides canvas is cleared on every redraw and
+                 the card canvas is rebuilt whenever cards change. -->
+            <Canvas x:Name="DropLayer" IsHitTestVisible="False" />
             <Canvas x:Name="CardCanvas" />
         </Grid>
     </Grid>

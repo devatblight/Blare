@@ -27,9 +27,10 @@ public sealed partial class MainWindow : Window
         SetTitleBar(AppTitleBar);
 
         // WinUI3 windows have no sane default size — left alone this opens
-        // near full-screen. Sized to fit the nav rail plus roughly five
-        // channel strips before the desk needs to scroll.
-        AppWindow.Resize(new Windows.Graphics.SizeInt32(880, 660));
+        // near full-screen. Sized so the default dashboard is fully visible:
+        // the top row of cards plus roughly six channel strips, without the
+        // desk needing to scroll or cards being squeezed.
+        AppWindow.Resize(new Windows.Graphics.SizeInt32(1240, 900));
 
         // Swapping resource dictionary values doesn't retro-actively update
         // elements that already resolved {ThemeResource}, so rebuild the page.

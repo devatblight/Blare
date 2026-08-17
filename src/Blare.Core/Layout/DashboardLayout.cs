@@ -83,6 +83,45 @@ public sealed class DashboardLayout
     public void Move(string id, int column, int row) =>
         Replace(id, card => card with { Column = column, Row = row });
 
+    /// <summary>
+    /// Drops a card at a position and gets everything else out of its way.
+    ///
+    /// Without this, dropping a card on top of another leaves them stacked and
+    /// the one underneath unreachable. Displaced cards move to the first free
+    /// slot; if there genuinely isn't room for one, it stays where it was and
+    /// the drop is refused rather than losing it.
+    /// </summary>
+    public bool Place(string id, int column, int row)
+    {
+        var original = Get(id);
+
+        if (original is null)
+        {
+            return false;
+        }
+
+        Move(id, column, row);
+        var anchor = Get(id)!;
+
+        var displaced = _cards.Where(c => c.Id != id && c.Overlaps(anchor)).ToList();
+
+        foreach (var card in displaced)
+        {
+            var slot = FindFreeSlot(card.ColumnSpan, card.RowSpan, ignoreId: card.Id);
+
+            if (slot is null)
+            {
+                // Nowhere for it to go — undo the whole drop.
+                Replace(id, _ => original);
+                return false;
+            }
+
+            Move(card.Id, slot.Value.Column, slot.Value.Row);
+        }
+
+        return true;
+    }
+
     public void Resize(string id, int columnSpan, int rowSpan) =>
         Replace(id, card => card with { ColumnSpan = columnSpan, RowSpan = rowSpan });
 
@@ -91,7 +130,8 @@ public sealed class DashboardLayout
     /// an existing one, scanning left to right, top to bottom. Returns null when
     /// the grid is full, so the UI can say so rather than stacking cards.
     /// </summary>
-    public (int Column, int Row)? FindFreeSlot(int columnSpan, int rowSpan)
+    /// <param name="ignoreId">A card to disregard — used when relocating that card, so it doesn't block itself.</param>
+    public (int Column, int Row)? FindFreeSlot(int columnSpan, int rowSpan, string? ignoreId = null)
     {
         var width = Math.Clamp(columnSpan, MinimumSpan, Columns);
         var height = Math.Clamp(rowSpan, MinimumSpan, Rows);
@@ -102,7 +142,7 @@ public sealed class DashboardLayout
             {
                 var candidate = new DashboardCard("probe", CardKind.AppMixer, column, row, width, height);
 
-                if (!_cards.Any(existing => existing.Overlaps(candidate)))
+                if (!_cards.Any(existing => existing.Id != ignoreId && existing.Overlaps(candidate)))
                 {
                     return (column, row);
                 }

@@ -77,9 +77,19 @@ public sealed class UpdateService
 
             LastChecked = DateTimeOffset.Now;
 
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                // GitHub returns 404 from releases/latest when a repository has
+                // no releases at all. That's the normal state before the first
+                // one is tagged, not a failure, and reporting it as an error
+                // makes a working install look broken.
+                LastError = null;
+                Available = null;
+                return null;
+            }
+
             if (!response.IsSuccessStatusCode)
             {
-                // A missing releases endpoint is normal before the first release.
                 LastError = $"GitHub returned {(int)response.StatusCode}";
                 return null;
             }

@@ -11,20 +11,27 @@ namespace Blight.Blare.App.Controls;
 /// Wraps one card on the dashboard and, in edit mode, lets it be dragged,
 /// resized and removed.
 ///
-/// Movement snaps to grid cells rather than following the pointer freely, so a
-/// user cannot produce a layout the model would have to silently correct — what
-/// they drag is exactly what gets saved.
+/// The card follows the pointer continuously while dragging and only commits to
+/// a grid cell when released. An earlier version snapped and ended the
+/// manipulation as soon as the drag crossed a single cell, which felt like the
+/// card twitched a few pixels and then dropped wherever it liked.
 /// </summary>
 public sealed class DashboardCardHost : ContentControl
 {
     private readonly Border _chrome;
-    private readonly Grid _root;
     private readonly Border _editOverlay;
     private readonly Rectangle _resizeGrip;
+    private readonly TranslateTransform _dragOffset = new();
 
     private double _cellWidth = 1;
     private double _cellHeight = 1;
     private bool _editing;
+
+    // Live gesture state, before it is committed to the model.
+    private int _pendingColumns;
+    private int _pendingRows;
+    private double _sizeDeltaX;
+    private double _sizeDeltaY;
 
     public DashboardCardHost(DashboardCard card, string title, UIElement content)
     {
@@ -47,20 +54,18 @@ public sealed class DashboardCardHost : ContentControl
             BorderBrush = Resource("BlareAccent"),
             Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
             Visibility = Visibility.Collapsed,
-            // Sits above the card so its own controls don't steal the drag.
-            IsHitTestVisible = true,
         };
 
         _resizeGrip = new Rectangle
         {
-            Width = 14,
-            Height = 14,
+            Width = 16,
+            Height = 16,
             RadiusX = 3,
             RadiusY = 3,
             Fill = Resource("BlareAccent"),
             HorizontalAlignment = HorizontalAlignment.Right,
             VerticalAlignment = VerticalAlignment.Bottom,
-            Margin = new Thickness(0, 0, 4, 4),
+            Margin = new Thickness(0, 0, 3, 3),
             Visibility = Visibility.Collapsed,
             ManipulationMode = ManipulationModes.TranslateX | ManipulationModes.TranslateY,
         };
@@ -75,30 +80,43 @@ public sealed class DashboardCardHost : ContentControl
             Visibility = Visibility.Collapsed,
         };
 
-        _root = new Grid();
-        _root.Children.Add(_chrome);
-        _root.Children.Add(_editOverlay);
-        _root.Children.Add(_resizeGrip);
-        _root.Children.Add(RemoveButton);
+        var root = new Grid();
+        root.Children.Add(_chrome);
+        root.Children.Add(_editOverlay);
+        root.Children.Add(_resizeGrip);
+        root.Children.Add(RemoveButton);
 
-        Content = _root;
+        Content = root;
         HorizontalContentAlignment = HorizontalAlignment.Stretch;
         VerticalContentAlignment = VerticalAlignment.Stretch;
+        RenderTransform = _dragOffset;
 
         ManipulationMode = ManipulationModes.TranslateX | ManipulationModes.TranslateY;
-        ManipulationDelta += OnCardDrag;
-        _resizeGrip.ManipulationDelta += OnGripDrag;
+        ManipulationStarted += OnDragStarted;
+        ManipulationDelta += OnDragDelta;
+        ManipulationCompleted += OnDragCompleted;
+
+        _resizeGrip.ManipulationStarted += OnResizeStarted;
+        _resizeGrip.ManipulationDelta += OnResizeDelta;
+        _resizeGrip.ManipulationCompleted += OnResizeCompleted;
     }
 
     public DashboardCard Card { get; private set; }
 
     public Button RemoveButton { get; }
 
-    /// <summary>Raised when a drag or resize finishes with a new grid position.</summary>
-    public event EventHandler<DashboardCard>? Changed;
+    /// <summary>Raised while dragging with the cell the card would land on, so the page can preview the drop.</summary>
+    public event EventHandler<DashboardCard>? Previewing;
 
-    /// <summary>Adopts the model's corrected geometry after a drag was clamped.</summary>
-    public void ApplyCard(DashboardCard card) => Card = card;
+    /// <summary>Raised on release with the final requested geometry.</summary>
+    public event EventHandler<DashboardCard>? Committed;
+
+    /// <summary>Adopts the model's geometry after it has clamped, displaced or refused a change.</summary>
+    public void ApplyCard(DashboardCard card)
+    {
+        Card = card;
+        ClearDragOffset();
+    }
 
     public void SetCellSize(double width, double height)
     {
@@ -115,49 +133,132 @@ public sealed class DashboardCardHost : ContentControl
         _resizeGrip.Visibility = visibility;
         RemoveButton.Visibility = visibility;
 
-        // The card's own controls stay live outside edit mode; inside it, they
+        // The card's own controls stay live outside edit mode; inside it they
         // must not swallow the drag.
         _chrome.IsHitTestVisible = !editing;
+
+        if (!editing)
+        {
+            ClearDragOffset();
+        }
     }
 
-    private void OnCardDrag(object sender, ManipulationDeltaRoutedEventArgs e)
+    // ---- move ----------------------------------------------------------------
+
+    private void OnDragStarted(object sender, ManipulationStartedRoutedEventArgs e)
     {
         if (!_editing)
         {
             return;
         }
 
-        var columns = (int)Math.Round(e.Cumulative.Translation.X / _cellWidth);
-        var rows = (int)Math.Round(e.Cumulative.Translation.Y / _cellHeight);
-
-        if (columns == 0 && rows == 0)
-        {
-            return;
-        }
-
-        Card = Card with { Column = Card.Column + columns, Row = Card.Row + rows };
-        Changed?.Invoke(this, Card);
-        e.Complete();
+        // Lift it visually so it reads as picked up.
+        Opacity = 0.75;
+        Canvas.SetZIndex(this, 10);
     }
 
-    private void OnGripDrag(object sender, ManipulationDeltaRoutedEventArgs e)
+    private void OnDragDelta(object sender, ManipulationDeltaRoutedEventArgs e)
     {
         if (!_editing)
         {
             return;
         }
 
+        // Follow the pointer exactly; snapping happens on release.
+        _dragOffset.X = e.Cumulative.Translation.X;
+        _dragOffset.Y = e.Cumulative.Translation.Y;
+
         var columns = (int)Math.Round(e.Cumulative.Translation.X / _cellWidth);
         var rows = (int)Math.Round(e.Cumulative.Translation.Y / _cellHeight);
 
-        if (columns == 0 && rows == 0)
+        if (columns == _pendingColumns && rows == _pendingRows)
         {
             return;
         }
 
-        Card = Card with { ColumnSpan = Card.ColumnSpan + columns, RowSpan = Card.RowSpan + rows };
-        Changed?.Invoke(this, Card);
-        e.Complete();
+        _pendingColumns = columns;
+        _pendingRows = rows;
+
+        Previewing?.Invoke(this, Card with
+        {
+            Column = Card.Column + columns,
+            Row = Card.Row + rows,
+        });
+    }
+
+    private void OnDragCompleted(object sender, ManipulationCompletedRoutedEventArgs e)
+    {
+        if (!_editing)
+        {
+            return;
+        }
+
+        Canvas.SetZIndex(this, 0);
+
+        var target = Card with
+        {
+            Column = Card.Column + _pendingColumns,
+            Row = Card.Row + _pendingRows,
+        };
+
+        _pendingColumns = 0;
+        _pendingRows = 0;
+        ClearDragOffset();
+
+        Committed?.Invoke(this, target);
+    }
+
+    // ---- resize --------------------------------------------------------------
+
+    private void OnResizeStarted(object sender, ManipulationStartedRoutedEventArgs e)
+    {
+        _sizeDeltaX = 0;
+        _sizeDeltaY = 0;
+        e.Handled = true;
+    }
+
+    private void OnResizeDelta(object sender, ManipulationDeltaRoutedEventArgs e)
+    {
+        if (!_editing)
+        {
+            return;
+        }
+
+        _sizeDeltaX = e.Cumulative.Translation.X;
+        _sizeDeltaY = e.Cumulative.Translation.Y;
+
+        // Grow live under the pointer rather than only on release.
+        Width = Math.Max(_cellWidth, (Card.ColumnSpan * _cellWidth) + _sizeDeltaX);
+        Height = Math.Max(_cellHeight, (Card.RowSpan * _cellHeight) + _sizeDeltaY);
+
+        e.Handled = true;
+    }
+
+    private void OnResizeCompleted(object sender, ManipulationCompletedRoutedEventArgs e)
+    {
+        if (!_editing)
+        {
+            return;
+        }
+
+        var target = Card with
+        {
+            ColumnSpan = Card.ColumnSpan + (int)Math.Round(_sizeDeltaX / _cellWidth),
+            RowSpan = Card.RowSpan + (int)Math.Round(_sizeDeltaY / _cellHeight),
+        };
+
+        _sizeDeltaX = 0;
+        _sizeDeltaY = 0;
+        e.Handled = true;
+
+        Committed?.Invoke(this, target);
+    }
+
+    private void ClearDragOffset()
+    {
+        _dragOffset.X = 0;
+        _dragOffset.Y = 0;
+        Opacity = 1;
     }
 
     private static UIElement BuildBody(string title, UIElement content)

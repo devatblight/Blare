@@ -204,7 +204,9 @@ public sealed partial class MixerPage
 
     private UIElement BuildQuickActionsCard()
     {
-        var stack = new StackPanel { Spacing = 6 };
+        // Tight spacing so all four actions fit the card's default height
+        // rather than the last one being clipped.
+        var stack = new StackPanel { Spacing = 4 };
 
         stack.Children.Add(ActionButton("Mute everything", 0xE74F, () => SetAllMuted(true)));
         stack.Children.Add(ActionButton("Unmute everything", 0xE767, () => SetAllMuted(false)));
@@ -304,6 +306,7 @@ public sealed partial class MixerPage
         var button = new Button
         {
             Content = content,
+            Padding = new Thickness(10, 4, 10, 4),
             HorizontalAlignment = HorizontalAlignment.Stretch,
             HorizontalContentAlignment = HorizontalAlignment.Left,
         };

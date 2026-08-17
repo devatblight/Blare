@@ -153,6 +153,82 @@ public class DashboardLayoutTests
     }
 
     [Fact]
+    public void DroppingOnAnotherCard_PushesItOutOfTheWay()
+    {
+        var layout = new DashboardLayout();
+        layout.Add(Card("a", 0, 0, columnSpan: 4, rowSpan: 4));
+        layout.Add(Card("b", 4, 0, columnSpan: 4, rowSpan: 4));
+
+        // Drop "a" squarely on top of "b".
+        Assert.True(layout.Place("a", 4, 0));
+
+        var a = layout.Get("a")!;
+        var b = layout.Get("b")!;
+
+        Assert.Equal((4, 0), (a.Column, a.Row));
+        Assert.False(a.Overlaps(b), "the displaced card should have moved clear");
+    }
+
+    [Fact]
+    public void DroppingLeavesNoOverlapsAnywhere()
+    {
+        var layout = DashboardLayout.CreateDefault();
+
+        layout.Place("status", 0, 0);
+
+        var cards = layout.Cards;
+        for (var i = 0; i < cards.Count; i++)
+        {
+            for (var j = i + 1; j < cards.Count; j++)
+            {
+                Assert.False(cards[i].Overlaps(cards[j]), $"{cards[i].Id} still overlaps {cards[j].Id}");
+            }
+        }
+    }
+
+    [Fact]
+    public void DroppingWithNowhereToDisplaceTo_IsRefusedAndChangesNothing()
+    {
+        var layout = new DashboardLayout();
+        layout.Add(Card("big", 0, 0, DashboardLayout.Columns, 10));
+        layout.Add(Card("small", 0, 10, DashboardLayout.Columns, 2));
+
+        // Dropping into the middle splits the grid into two five-row gaps, and
+        // the ten-row card fits in neither, so the drop must be refused rather
+        // than leaving cards stacked on top of each other.
+        Assert.False(layout.Place("small", 0, 5));
+
+        var small = layout.Get("small")!;
+        var big = layout.Get("big")!;
+
+        Assert.Equal((0, 10), (small.Column, small.Row));
+        Assert.Equal((0, 0), (big.Column, big.Row));
+    }
+
+    [Fact]
+    public void DroppingOnEmptySpace_JustMoves()
+    {
+        var layout = new DashboardLayout();
+        layout.Add(Card("a", 0, 0, columnSpan: 3, rowSpan: 3));
+
+        Assert.True(layout.Place("a", 6, 6));
+
+        var a = layout.Get("a")!;
+        Assert.Equal((6, 6), (a.Column, a.Row));
+    }
+
+    [Fact]
+    public void FindFreeSlot_CanIgnoreTheCardBeingRelocated()
+    {
+        var layout = new DashboardLayout();
+        layout.Add(Card("only", 0, 0, DashboardLayout.Columns, DashboardLayout.Rows));
+
+        // Blocked by itself unless excluded.
+        Assert.Null(layout.FindFreeSlot(3, 3));
+        Assert.NotNull(layout.FindFreeSlot(3, 3, ignoreId: "only"));
+    }
+
+    [Fact]
     public void SavedLayout_SurvivesARoundTrip()
     {
         var original = DashboardLayout.CreateDefault();

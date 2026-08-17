@@ -44,6 +44,9 @@ public sealed partial class MixerPage : Page
     private readonly Dictionary<string, List<uint>> _processesByApp = new();
 
     private readonly List<DashboardCardHost> _hosts = new();
+
+    /// <summary>Ghost showing where a dragged card will land.</summary>
+    private readonly Rectangle _dropPreview = new();
     private readonly double[] _bandScratch;
 
     // Built at runtime by the card content, so any of these may be absent when
@@ -81,6 +84,7 @@ public sealed partial class MixerPage : Page
 
         InitializeComponent();
         BuildAddCardMenu();
+        BuildDropPreview();
 
         _safetyTimer = CreateTimer(TimeSpan.FromSeconds(5), RunSafetySample);
         _meterTimer = CreateTimer(TimeSpan.FromMilliseconds(50), RefreshMeters);
@@ -119,6 +123,25 @@ public sealed partial class MixerPage : Page
 
     // ---- dashboard -----------------------------------------------------------
 
+    private void BuildDropPreview()
+    {
+        _dropPreview.RadiusX = 8;
+        _dropPreview.RadiusY = 8;
+        _dropPreview.StrokeThickness = 1.5;
+        _dropPreview.StrokeDashArray = [3, 3];
+        _dropPreview.Visibility = Visibility.Collapsed;
+        _dropPreview.IsHitTestVisible = false;
+
+        if (Application.Current.Resources.TryGetValue("BlareAccent", out var accent) && accent is Brush brush)
+        {
+            _dropPreview.Stroke = brush;
+            _dropPreview.Fill = brush;
+            _dropPreview.Opacity = 0.18;
+        }
+
+        DropLayer.Children.Add(_dropPreview);
+    }
+
     private void BuildAddCardMenu()
     {
         foreach (var kind in Enum.GetValues<CardKind>())
@@ -145,7 +168,8 @@ public sealed partial class MixerPage : Page
         foreach (var card in _dashboardStore.Layout.Cards)
         {
             var host = new DashboardCardHost(card, TitleFor(card.Kind), BuildCardContent(card.Kind));
-            host.Changed += OnCardChanged;
+            host.Previewing += OnCardPreviewing;
+            host.Committed += OnCardCommitted;
             host.RemoveButton.Click += (_, _) => RemoveCard(card.Id);
             host.SetEditing(EditModeToggle.IsChecked == true);
 
@@ -189,15 +213,37 @@ public sealed partial class MixerPage : Page
         (DashboardSurface.ActualWidth / DashboardLayout.Columns,
          DashboardSurface.ActualHeight / DashboardLayout.Rows);
 
-    private void OnCardChanged(object? sender, Blight.Blare.Core.Layout.DashboardCard card)
+    /// <summary>Shows where a dragged card would land, so the drop isn't a guess.</summary>
+    private void OnCardPreviewing(object? sender, Blight.Blare.Core.Layout.DashboardCard card)
     {
-        // The model clamps, so read the corrected value back rather than trusting the drag.
-        _dashboardStore.Layout.Move(card.Id, card.Column, card.Row);
+        var (cellWidth, cellHeight) = CellSize();
+
+        _dropPreview.Width = Math.Max(0, card.ColumnSpan * cellWidth - CardGap);
+        _dropPreview.Height = Math.Max(0, card.RowSpan * cellHeight - CardGap);
+        Canvas.SetLeft(_dropPreview, Math.Clamp(card.Column, 0, DashboardLayout.Columns - card.ColumnSpan) * cellWidth);
+        Canvas.SetTop(_dropPreview, Math.Clamp(card.Row, 0, DashboardLayout.Rows - card.RowSpan) * cellHeight);
+        _dropPreview.Visibility = Visibility.Visible;
+    }
+
+    private void OnCardCommitted(object? sender, Blight.Blare.Core.Layout.DashboardCard card)
+    {
+        _dropPreview.Visibility = Visibility.Collapsed;
+
+        // Resize first so displacement is computed against the final footprint.
         _dashboardStore.Layout.Resize(card.Id, card.ColumnSpan, card.RowSpan);
 
-        if (sender is DashboardCardHost host && _dashboardStore.Layout.Get(card.Id) is { } corrected)
+        // Place pushes anything in the way aside, and refuses the drop outright
+        // if there's nowhere for the displaced card to go.
+        _dashboardStore.Layout.Place(card.Id, card.Column, card.Row);
+
+        // Every host adopts the model's answer — the dragged card may have been
+        // clamped or refused, and others may have been displaced.
+        foreach (var host in _hosts)
         {
-            host.ApplyCard(corrected);
+            if (_dashboardStore.Layout.Get(host.Card.Id) is { } placed)
+            {
+                host.ApplyCard(placed);
+            }
         }
 
         LayoutCards();
