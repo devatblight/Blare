@@ -15,6 +15,7 @@ public sealed partial class SettingsPage : Page
     private readonly BackdropService _backdropService;
     private readonly FlyoutService _flyoutService;
     private readonly UpdateService _updateService;
+    private readonly StartupService _startupService;
     private readonly Dictionary<FlyoutPosition, Button> _positionCells = new();
     private bool _initializing = true;
 
@@ -26,6 +27,7 @@ public sealed partial class SettingsPage : Page
         _backdropService = App.Services.GetRequiredService<BackdropService>();
         _flyoutService = App.Services.GetRequiredService<FlyoutService>();
         _updateService = App.Services.GetRequiredService<UpdateService>();
+        _startupService = App.Services.GetRequiredService<StartupService>();
 
         InitializeComponent();
 
@@ -34,6 +36,9 @@ public sealed partial class SettingsPage : Page
         ThemeComboBox.SelectedIndex = _themeService.Current == BlareTheme.StudioDark ? 1 : 0;
         BackdropComboBox.SelectedIndex = (int)_backdropService.Requested;
         UpdateChecksToggle.IsOn = _updateService.ChecksEnabled;
+        RunAtStartupToggle.IsOn = _startupService.RunsAtStartup;
+        StartHiddenToggle.IsOn = _startupService.StartHidden;
+        UpdateStartupCards();
 
         // Say so rather than silently substituting when the OS can't do Mica.
         if (!BackdropService.MicaSupported)
@@ -121,6 +126,43 @@ public sealed partial class SettingsPage : Page
         var row = position.Row() switch { 0 => "Top", 1 => "Middle", _ => "Bottom" };
         var column = position.Column() switch { 0 => "left", 1 => "centre", _ => "right" };
         return $"{row} {column}";
+    }
+
+    private void OnRunAtStartupToggled(object sender, RoutedEventArgs e)
+    {
+        if (_initializing)
+        {
+            return;
+        }
+
+        if (!_startupService.SetRunAtStartup(RunAtStartupToggle.IsOn))
+        {
+            // Say so rather than leaving a toggle that claims something untrue.
+            RunAtStartupToggle.IsOn = _startupService.RunsAtStartup;
+            _flyoutService.Show(
+                "Couldn't change startup",
+                "Windows refused the change. Your startup apps can also be managed from Task Manager.",
+                FlyoutTone.Caution,
+                TimeSpan.FromSeconds(6));
+        }
+
+        UpdateStartupCards();
+    }
+
+    private async void OnStartHiddenToggled(object sender, RoutedEventArgs e)
+    {
+        if (_initializing)
+        {
+            return;
+        }
+
+        await _startupService.SetStartHiddenAsync(StartHiddenToggle.IsOn);
+    }
+
+    private void UpdateStartupCards()
+    {
+        // Starting hidden only means anything when Windows is launching it.
+        StartHiddenCard.IsEnabled = _startupService.RunsAtStartup;
     }
 
     private async void OnCheckUpdatesClick(object sender, RoutedEventArgs e)

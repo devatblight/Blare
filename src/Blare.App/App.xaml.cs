@@ -55,8 +55,17 @@ public partial class App : Application
         // delays startup.
         CrashLog.FireAndForget(updates.CheckAsync(notify: true));
 
+        var startup = Services.GetRequiredService<StartupService>();
+        await startup.LoadAsync();
+
         _mainWindow = Services.GetRequiredService<MainWindow>();
-        _mainWindow.Activate();
+
+        // Launched by Windows at sign-in: stay in the tray rather than throwing
+        // a window over whatever the user is doing.
+        if (!StartupService.LaunchedToTray(Environment.GetCommandLineArgs()))
+        {
+            _mainWindow.Activate();
+        }
 
         _trayIcon = Services.GetRequiredService<TrayIconService>();
         _trayIcon.OpenRequested += (_, _) => _mainWindow.Activate();
@@ -91,6 +100,7 @@ public partial class App : Application
         services.AddSingleton<ConsentStore>();
         services.AddSingleton<FlyoutService>();
         services.AddSingleton<UpdateService>();
+        services.AddSingleton<StartupService>();
         services.AddSingleton<ThemeService>();
         services.AddSingleton<BackdropService>();
         services.AddSingleton(new AppPaths(settingsDirectory));

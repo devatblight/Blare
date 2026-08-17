@@ -10,7 +10,28 @@
         <StackPanel Spacing="4" MaxWidth="760" HorizontalAlignment="Stretch">
             <TextBlock Text="Settings" Style="{StaticResource TitleLargeTextBlockStyle}" Margin="0,0,0,12" />
 
-            <TextBlock Text="Appearance" Style="{StaticResource BodyStrongTextBlockStyle}" Margin="0,8,0,4" />
+            <TextBlock Text="Startup" Style="{StaticResource BodyStrongTextBlockStyle}" Margin="0,8,0,4" />
+
+            <controls:SettingsCard
+                Header="Run when Windows starts"
+                Description="Adds Blare to your startup apps. You can also turn this off from Task Manager's Startup tab.">
+                <controls:SettingsCard.HeaderIcon>
+                    <FontIcon Glyph="&#xE7E8;" />
+                </controls:SettingsCard.HeaderIcon>
+                <ToggleSwitch x:Name="RunAtStartupToggle" OnContent="On" OffContent="Off" Toggled="OnRunAtStartupToggled" />
+            </controls:SettingsCard>
+
+            <controls:SettingsCard
+                x:Name="StartHiddenCard"
+                Header="Start hidden in the tray"
+                Description="Launch straight to the tray instead of opening a window.">
+                <controls:SettingsCard.HeaderIcon>
+                    <FontIcon Glyph="&#xE7B3;" />
+                </controls:SettingsCard.HeaderIcon>
+                <ToggleSwitch x:Name="StartHiddenToggle" OnContent="On" OffContent="Off" Toggled="OnStartHiddenToggled" />
+            </controls:SettingsCard>
+
+            <TextBlock Text="Appearance" Style="{StaticResource BodyStrongTextBlockStyle}" Margin="0,24,0,4" />
 
             <controls:SettingsCard
                 Header="Theme"
