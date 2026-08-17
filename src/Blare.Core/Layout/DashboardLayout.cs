@@ -29,6 +29,9 @@ public enum CardKind
 
     /// <summary>The loudest app right now, at a glance.</summary>
     NowPlaying,
+
+    /// <summary>Saved level sets, and a button to recall them.</summary>
+    Scenes,
 }
 
 /// <summary>The span a card may occupy, in grid cells.</summary>
@@ -55,6 +58,7 @@ public static class CardSizing
         CardKind.HearingStatus => new CardBounds(2, 2, 8, 5),
         CardKind.QuickActions => new CardBounds(2, 2, 8, 6),
         CardKind.NowPlaying => new CardBounds(2, 2, 8, 4),
+        CardKind.Scenes => new CardBounds(3, 3, 8, 10),
         _ => new CardBounds(2, 2, 12, 12),
     };
 }

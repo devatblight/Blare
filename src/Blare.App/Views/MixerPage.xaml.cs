@@ -8,6 +8,7 @@ using Blight.Blare.Audio.Devices;
 using Blight.Blare.Audio.Sessions;
 using Blight.Blare.Core.Layout;
 using Blight.Blare.Core.Mixing;
+using Blight.Blare.Core.Scenes;
 using Blight.Blare.Core.Settings;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Dispatching;
@@ -32,6 +33,7 @@ public sealed partial class MixerPage : Page
     private readonly DashboardStore _dashboardStore;
     private readonly LimitsStore _limits;
     private readonly FlyoutService _flyout;
+    private readonly SceneStore _scenes;
     private readonly SessionGroupTracker _groupTracker = new();
     private readonly IconResolver _iconResolver = new();
 
@@ -64,6 +66,7 @@ public sealed partial class MixerPage : Page
     private Ellipse? _exposureDot;
     private TextBlock? _nowPlayingText;
     private TextBlock? _nowPlayingDetail;
+    private StackPanel? _scenesPanel;
 
     private bool _suppressMasterVolumePush;
     private string? _masterDeviceId;
@@ -91,6 +94,7 @@ public sealed partial class MixerPage : Page
         _dashboardStore = App.Services.GetRequiredService<DashboardStore>();
         _limits = App.Services.GetRequiredService<LimitsStore>();
         _flyout = App.Services.GetRequiredService<FlyoutService>();
+        _scenes = App.Services.GetRequiredService<SceneStore>();
         _bandScratch = new double[_spectrumMonitor.BandCount];
 
         InitializeComponent();
@@ -173,6 +177,7 @@ public sealed partial class MixerPage : Page
         // Card content re-creates these; drop the stale references first.
         _stripsPanel = null;
         _emptyState = null;
+        _scenesPanel = null;
         _masterVolumeSlider = null;
         _warningCountText = null;
         _nowPlayingText = null;
@@ -452,6 +457,133 @@ public sealed partial class MixerPage : Page
 
         _soloedAppKey = appKey;
         UpdateHeader();
+    }
+
+    // ---- scenes --------------------------------------------------------------
+
+    /// <summary>Captures every strip's level and mute under a name.</summary>
+    private void SaveScene(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            _flyout.Show("Name it first", "A scene needs a name to be recalled by.", FlyoutTone.Caution, TimeSpan.FromSeconds(3));
+            return;
+        }
+
+        var levels = _strips.Values
+            .Select(strip => strip.ViewModel)
+            .Where(viewModel => viewModel is not null)
+            .Select(viewModel => new SceneLevel(
+                string.IsNullOrEmpty(viewModel!.ExecutablePath) ? viewModel.AppKey : viewModel.ExecutablePath,
+                viewModel.VolumePercent,
+                viewModel.IsMuted))
+            .ToList();
+
+        _scenes.Book.Save(new Scene(name.Trim(), levels));
+        RefreshScenes();
+
+        _flyout.Show(name.Trim(), $"Saved {levels.Count} levels.", FlyoutTone.Neutral, TimeSpan.FromSeconds(3));
+    }
+
+    /// <summary>
+    /// Puts the desk back into a scene.
+    ///
+    /// Apps in the scene that aren't running are skipped rather than treated as
+    /// an error — a gaming scene naming five apps is still useful when only two
+    /// of them are open.
+    /// </summary>
+    private void RecallScene(string name)
+    {
+        if (_scenes.Book.Get(name) is not { } scene)
+        {
+            return;
+        }
+
+        var applied = 0;
+
+        foreach (var strip in _strips.Values)
+        {
+            if (strip.ViewModel is not { } viewModel)
+            {
+                continue;
+            }
+
+            var key = string.IsNullOrEmpty(viewModel.ExecutablePath) ? viewModel.AppKey : viewModel.ExecutablePath;
+
+            if (scene.For(key) is not { } level)
+            {
+                continue;
+            }
+
+            viewModel.VolumePercent = level.VolumePercent;
+            viewModel.IsMuted = level.IsMuted;
+            applied++;
+        }
+
+        _flyout.Show(scene.Name, applied == 0 ? "None of its apps are running." : $"Restored {applied} levels.",
+            FlyoutTone.Neutral, TimeSpan.FromSeconds(3));
+    }
+
+    /// <summary>Redraws the scene list after the book changes.</summary>
+    private void RefreshScenes()
+    {
+        if (_scenesPanel is null)
+        {
+            return;
+        }
+
+        _scenesPanel.Children.Clear();
+
+        if (_scenes.Book.Scenes.Count == 0)
+        {
+            _scenesPanel.Children.Add(new TextBlock
+            {
+                Text = "No scenes yet. Set your levels, then save them.",
+                FontSize = 11.5,
+                Opacity = 0.5,
+                TextWrapping = TextWrapping.Wrap,
+            });
+
+            return;
+        }
+
+        foreach (var scene in _scenes.Book.Scenes)
+        {
+            var row = new Grid { ColumnSpacing = 6 };
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            var recall = new Button
+            {
+                Content = new TextBlock { Text = scene.Name, FontSize = 12, TextTrimming = TextTrimming.CharacterEllipsis },
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                HorizontalContentAlignment = HorizontalAlignment.Left,
+                Padding = new Thickness(10, 4, 10, 4),
+            };
+
+            var name = scene.Name;
+            recall.Click += (_, _) => RecallScene(name);
+
+            var remove = new Button
+            {
+                Content = new FontIcon { Glyph = char.ConvertFromUtf32(0xE711), FontSize = 11 },
+                Padding = new Thickness(7, 4, 7, 4),
+            };
+
+            ToolTipService.SetToolTip(remove, $"Delete {name}");
+            remove.Click += (_, _) =>
+            {
+                _scenes.Book.Remove(name);
+                RefreshScenes();
+            };
+
+            Grid.SetColumn(recall, 0);
+            Grid.SetColumn(remove, 1);
+            row.Children.Add(recall);
+            row.Children.Add(remove);
+
+            _scenesPanel.Children.Add(row);
+        }
     }
 
     private void SetLimit(SessionRowViewModel viewModel, double? ceiling)

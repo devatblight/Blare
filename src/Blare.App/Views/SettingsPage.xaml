@@ -120,6 +120,43 @@
                 <Button x:Name="ToggleWarningsButton" Content="Disable" Click="OnToggleWarningsClick" />
             </controls:SettingsCard>
 
+            <controls:SettingsExpander
+                Header="Quiet hours"
+                Description="Holds every app under a ceiling during the hours you choose. Late-night listening is the case this exists for.">
+                <controls:SettingsExpander.HeaderIcon>
+                    <FontIcon Glyph="&#xE708;" />
+                </controls:SettingsExpander.HeaderIcon>
+
+                <ToggleSwitch x:Name="QuietHoursToggle" OnContent="On" OffContent="Off" Toggled="OnQuietHoursToggled" />
+
+                <controls:SettingsExpander.Items>
+                    <controls:SettingsCard Header="From" HorizontalContentAlignment="Right">
+                        <TimePicker x:Name="QuietStartPicker" ClockIdentifier="24HourClock" SelectedTimeChanged="OnQuietHoursEdited" />
+                    </controls:SettingsCard>
+
+                    <controls:SettingsCard Header="Until" HorizontalContentAlignment="Right">
+                        <TimePicker x:Name="QuietEndPicker" ClockIdentifier="24HourClock" SelectedTimeChanged="OnQuietHoursEdited" />
+                    </controls:SettingsCard>
+
+                    <controls:SettingsCard
+                        Header="Ceiling"
+                        Description="No app can be set above this while quiet hours are on."
+                        HorizontalContentAlignment="Right">
+                        <NumberBox
+                            x:Name="QuietCeilingBox"
+                            Minimum="0"
+                            Maximum="100"
+                            SpinButtonPlacementMode="Compact"
+                            MinWidth="120"
+                            ValueChanged="OnQuietCeilingChanged" />
+                    </controls:SettingsCard>
+
+                    <controls:SettingsCard>
+                        <TextBlock x:Name="QuietHoursSummary" Opacity="0.7" TextWrapping="Wrap" FontSize="12" />
+                    </controls:SettingsCard>
+                </controls:SettingsExpander.Items>
+            </controls:SettingsExpander>
+
             <InfoBar
                 IsOpen="True"
                 IsClosable="False"

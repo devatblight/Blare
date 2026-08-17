@@ -15,6 +15,7 @@ public sealed partial class SettingsPage : Page
     private readonly FlyoutService _flyoutService;
     private readonly UpdateService _updateService;
     private readonly StartupService _startupService;
+    private readonly LimitsStore _limits;
     private readonly Dictionary<FlyoutPosition, Button> _positionCells = new();
     private bool _initializing = true;
 
@@ -26,10 +27,12 @@ public sealed partial class SettingsPage : Page
         _flyoutService = App.Services.GetRequiredService<FlyoutService>();
         _updateService = App.Services.GetRequiredService<UpdateService>();
         _startupService = App.Services.GetRequiredService<StartupService>();
+        _limits = App.Services.GetRequiredService<LimitsStore>();
 
         InitializeComponent();
 
         BuildPositionGrid();
+        LoadQuietHours();
 
         ThemeComboBox.SelectedIndex = _themeService.Current == BlareTheme.StudioDark ? 1 : 0;
         BackdropComboBox.SelectedIndex = (int)_backdropService.Requested;
@@ -47,6 +50,71 @@ public sealed partial class SettingsPage : Page
         _initializing = false;
 
         UpdateToggleWarningsButton();
+    }
+
+    // ---- quiet hours ---------------------------------------------------------
+
+    private void LoadQuietHours()
+    {
+        var quiet = _limits.Limits.QuietHours;
+
+        QuietHoursToggle.IsOn = quiet.Enabled;
+        QuietStartPicker.SelectedTime = quiet.Start.ToTimeSpan();
+        QuietEndPicker.SelectedTime = quiet.End.ToTimeSpan();
+        QuietCeilingBox.Value = quiet.CeilingPercent;
+
+        UpdateQuietHoursSummary();
+    }
+
+    private void OnQuietHoursToggled(object sender, RoutedEventArgs e) => SaveQuietHours();
+
+    private void OnQuietHoursEdited(TimePicker sender, TimePickerSelectedValueChangedEventArgs args) => SaveQuietHours();
+
+    private void OnQuietCeilingChanged(NumberBox sender, NumberBoxValueChangedEventArgs args)
+    {
+        // NaN arrives while the box is being cleared mid-edit.
+        if (!double.IsNaN(args.NewValue))
+        {
+            SaveQuietHours();
+        }
+    }
+
+    private void SaveQuietHours()
+    {
+        if (_initializing)
+        {
+            return;
+        }
+
+        var start = TimeOnly.FromTimeSpan(QuietStartPicker.SelectedTime ?? TimeSpan.FromHours(23));
+        var end = TimeOnly.FromTimeSpan(QuietEndPicker.SelectedTime ?? TimeSpan.FromHours(7));
+        var ceiling = double.IsNaN(QuietCeilingBox.Value) ? 40 : QuietCeilingBox.Value;
+
+        _limits.Limits.SetQuietHours(new Blight.Blare.Core.Safety.QuietHours(
+            QuietHoursToggle.IsOn, start, end, ceiling));
+
+        UpdateQuietHoursSummary();
+    }
+
+    /// <summary>
+    /// Spells out what the window means, including that it runs past midnight —
+    /// "23:00 until 07:00" is ambiguous enough to be worth saying plainly.
+    /// </summary>
+    private void UpdateQuietHoursSummary()
+    {
+        var quiet = _limits.Limits.QuietHours;
+
+        if (!quiet.Enabled)
+        {
+            QuietHoursSummary.Text = "Off. Nothing is capped by time of day.";
+            return;
+        }
+
+        var overnight = quiet.Start > quiet.End ? ", overnight" : string.Empty;
+        var active = quiet.Contains(TimeOnly.FromDateTime(DateTime.Now)) ? " In force right now." : string.Empty;
+
+        QuietHoursSummary.Text =
+            $"From {quiet.Start:HH\\:mm} until {quiet.End:HH\\:mm}{overnight}, nothing goes above {quiet.CeilingPercent:F0}%.{active}";
     }
 
     private async void OnThemeChanged(object sender, SelectionChangedEventArgs e)

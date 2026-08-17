@@ -28,6 +28,7 @@ public sealed partial class MixerPage
         CardKind.HearingStatus => "Hearing",
         CardKind.QuickActions => "Quick actions",
         CardKind.NowPlaying => "Loudest right now",
+        CardKind.Scenes => "Scenes",
         _ => kind.ToString(),
     };
 
@@ -40,8 +41,56 @@ public sealed partial class MixerPage
         CardKind.HearingStatus => BuildHearingCard(),
         CardKind.QuickActions => BuildQuickActionsCard(density),
         CardKind.NowPlaying => BuildNowPlayingCard(density),
+        CardKind.Scenes => BuildScenesCard(),
         _ => new TextBlock { Text = "Unknown card" },
     };
+
+    /// <summary>
+    /// Saved level sets, and one click to put the desk back into one.
+    ///
+    /// Rebuilt whenever the book changes rather than data-bound: the list is a
+    /// handful of rows and rebuilding is simpler than keeping an observable
+    /// collection in step with a store that other surfaces also write to.
+    /// </summary>
+    private UIElement BuildScenesCard()
+    {
+        _scenesPanel = new StackPanel { Spacing = 4 };
+
+        var nameBox = new TextBox { PlaceholderText = "Scene name", MinWidth = 150 };
+        var confirm = new Button { Content = "Save", HorizontalAlignment = HorizontalAlignment.Right };
+
+        var saveFlyout = new Flyout
+        {
+            Content = new StackPanel
+            {
+                Spacing = 8,
+                Children = { nameBox, confirm },
+            },
+        };
+
+        confirm.Click += (_, _) =>
+        {
+            SaveScene(nameBox.Text);
+            nameBox.Text = string.Empty;
+            saveFlyout.Hide();
+        };
+
+        var save = new Button
+        {
+            Content = "Save current levels",
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            HorizontalContentAlignment = HorizontalAlignment.Left,
+            Padding = new Thickness(10, 4, 10, 4),
+            Flyout = saveFlyout,
+        };
+
+        var stack = new StackPanel { Spacing = 8 };
+        stack.Children.Add(save);
+        stack.Children.Add(_scenesPanel);
+
+        RefreshScenes();
+        return stack;
+    }
 
     private UIElement BuildAppMixerCard()
     {
