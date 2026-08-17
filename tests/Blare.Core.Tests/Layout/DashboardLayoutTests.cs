@@ -7,6 +7,86 @@ public class DashboardLayoutTests
     private static DashboardCard Card(string id, int column, int row, int columnSpan = 3, int rowSpan = 3) =>
         new(id, CardKind.QuickActions, column, row, columnSpan, rowSpan);
 
+    /// <summary>A card covering the whole grid. Only the mixer is allowed to be this large.</summary>
+    private static DashboardCard FullGridCard(string id) =>
+        new(id, CardKind.AppMixer, 0, 0, DashboardLayout.Columns, DashboardLayout.Rows);
+
+    [Fact]
+    public void Resize_WillNotShrinkACardBelowWhatItsContentNeeds()
+    {
+        // The mixer clipped its own faders after being dragged short.
+        var layout = new DashboardLayout();
+        layout.Add(new DashboardCard("mixer", CardKind.AppMixer, 0, 0, 12, 9));
+
+        layout.Resize("mixer", 2, 2);
+
+        var bounds = CardSizing.For(CardKind.AppMixer);
+        var mixer = layout.Get("mixer")!;
+
+        Assert.Equal(bounds.MinColumns, mixer.ColumnSpan);
+        Assert.Equal(bounds.MinRows, mixer.RowSpan);
+    }
+
+    [Fact]
+    public void Resize_WillNotGrowACardBeyondItsUsefulSize()
+    {
+        var layout = new DashboardLayout();
+        layout.Add(new DashboardCard("now", CardKind.NowPlaying, 0, 0, 3, 3));
+
+        layout.Resize("now", 12, 12);
+
+        var bounds = CardSizing.For(CardKind.NowPlaying);
+        var card = layout.Get("now")!;
+
+        Assert.Equal(bounds.MaxColumns, card.ColumnSpan);
+        Assert.Equal(bounds.MaxRows, card.RowSpan);
+    }
+
+    [Fact]
+    public void EveryCardKind_HasBoundsThatFitTheGridAndAgreeWithEachOther()
+    {
+        foreach (var kind in Enum.GetValues<CardKind>())
+        {
+            var bounds = CardSizing.For(kind);
+
+            Assert.True(bounds.MinColumns >= DashboardLayout.MinimumSpan, $"{kind} minimum width is below the grid minimum");
+            Assert.True(bounds.MinRows >= DashboardLayout.MinimumSpan, $"{kind} minimum height is below the grid minimum");
+            Assert.True(bounds.MaxColumns <= DashboardLayout.Columns, $"{kind} can grow off the grid");
+            Assert.True(bounds.MaxRows <= DashboardLayout.Rows, $"{kind} can grow off the grid");
+            Assert.True(bounds.MinColumns <= bounds.MaxColumns, $"{kind} cannot be both at least and at most that wide");
+            Assert.True(bounds.MinRows <= bounds.MaxRows, $"{kind} cannot be both at least and at most that tall");
+        }
+    }
+
+    [Fact]
+    public void DefaultLayout_RespectsEveryCardsOwnBounds()
+    {
+        foreach (var card in DashboardLayout.CreateDefault().Cards)
+        {
+            var bounds = CardSizing.For(card.Kind);
+
+            Assert.InRange(card.ColumnSpan, bounds.MinColumns, bounds.MaxColumns);
+            Assert.InRange(card.RowSpan, bounds.MinRows, bounds.MaxRows);
+        }
+    }
+
+    [Fact]
+    public void FromCards_SeparatesCardsThatLoadBackOverlapping()
+    {
+        // A layout saved when the mixer could be three rows tall loads back four
+        // rows tall, which would otherwise leave it sitting on its neighbour.
+        var layout = DashboardLayout.FromCards(
+        [
+            new DashboardCard("mixer", CardKind.AppMixer, 0, 0, 12, 3),
+            new DashboardCard("now", CardKind.NowPlaying, 0, 3, 4, 3),
+        ]);
+
+        var mixer = layout.Get("mixer")!;
+        var now = layout.Get("now")!;
+
+        Assert.False(mixer.Overlaps(now));
+    }
+
     [Fact]
     public void DefaultLayout_HasNoOverlappingCards()
     {
@@ -139,7 +219,7 @@ public class DashboardLayoutTests
     public void FindFreeSlot_ReturnsNullWhenTheGridIsFull()
     {
         var layout = new DashboardLayout();
-        layout.Add(Card("full", 0, 0, DashboardLayout.Columns, DashboardLayout.Rows));
+        layout.Add(FullGridCard("full"));
 
         Assert.Null(layout.FindFreeSlot(3, 3));
     }
@@ -221,7 +301,7 @@ public class DashboardLayoutTests
     public void FindFreeSlot_CanIgnoreTheCardBeingRelocated()
     {
         var layout = new DashboardLayout();
-        layout.Add(Card("only", 0, 0, DashboardLayout.Columns, DashboardLayout.Rows));
+        layout.Add(FullGridCard("only"));
 
         // Blocked by itself unless excluded.
         Assert.Null(layout.FindFreeSlot(3, 3));

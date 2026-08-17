@@ -31,6 +31,34 @@ public enum CardKind
     NowPlaying,
 }
 
+/// <summary>The span a card may occupy, in grid cells.</summary>
+public readonly record struct CardBounds(int MinColumns, int MinRows, int MaxColumns, int MaxRows);
+
+/// <summary>
+/// How small each kind of card may be shrunk and how large it may usefully grow.
+///
+/// A single global minimum is not enough: two cells is a perfectly good size for
+/// a status readout and far too small for a rack of channel strips, which is how
+/// the mixer ended up clipping its own faders. Maximums exist because a card
+/// stretched across the whole desk mostly adds empty space, and the room is
+/// better spent on another card.
+/// </summary>
+public static class CardSizing
+{
+    public static CardBounds For(CardKind kind) => kind switch
+    {
+        // Needs room for a row of strips: icon, fader, readout and buttons.
+        CardKind.AppMixer => new CardBounds(4, 4, 12, 12),
+        CardKind.MasterOutput => new CardBounds(3, 2, 12, 4),
+        CardKind.OtherOutputs => new CardBounds(3, 2, 12, 8),
+        CardKind.DisplaySpeakers => new CardBounds(3, 2, 12, 8),
+        CardKind.HearingStatus => new CardBounds(2, 2, 8, 5),
+        CardKind.QuickActions => new CardBounds(2, 2, 8, 6),
+        CardKind.NowPlaying => new CardBounds(2, 2, 8, 4),
+        _ => new CardBounds(2, 2, 12, 12),
+    };
+}
+
 /// <summary>One placed card. <paramref name="Id"/> is unique per instance so the same kind can appear more than once.</summary>
 public sealed record DashboardCard(string Id, CardKind Kind, int Column, int Row, int ColumnSpan, int RowSpan)
 {
@@ -163,7 +191,38 @@ public sealed class DashboardLayout
 
         // An empty or unreadable saved layout would leave a blank screen with no
         // obvious way back, so fall back to the default instead.
-        return layout._cards.Count == 0 ? CreateDefault() : layout;
+        if (layout._cards.Count == 0)
+        {
+            return CreateDefault();
+        }
+
+        layout.ResolveOverlaps();
+        return layout;
+    }
+
+    /// <summary>
+    /// Moves any card that sits on top of another to the first free slot.
+    ///
+    /// A layout saved before a card's minimum size changed can load back larger
+    /// than it was stored, which turns a tidy arrangement into stacked cards with
+    /// the lower one unreachable.
+    /// </summary>
+    private void ResolveOverlaps()
+    {
+        for (var index = 0; index < _cards.Count; index++)
+        {
+            var card = _cards[index];
+
+            if (!_cards.Take(index).Any(earlier => earlier.Overlaps(card)))
+            {
+                continue;
+            }
+
+            if (FindFreeSlot(card.ColumnSpan, card.RowSpan, ignoreId: card.Id) is { } slot)
+            {
+                _cards[index] = card with { Column = slot.Column, Row = slot.Row };
+            }
+        }
     }
 
     private void Replace(string id, Func<DashboardCard, DashboardCard> update)
@@ -178,8 +237,17 @@ public sealed class DashboardLayout
 
     private static DashboardCard Clamp(DashboardCard card)
     {
-        var columnSpan = Math.Clamp(card.ColumnSpan, MinimumSpan, Columns);
-        var rowSpan = Math.Clamp(card.RowSpan, MinimumSpan, Rows);
+        var bounds = CardSizing.For(card.Kind);
+
+        var columnSpan = Math.Clamp(
+            card.ColumnSpan,
+            Math.Clamp(bounds.MinColumns, MinimumSpan, Columns),
+            Math.Clamp(bounds.MaxColumns, MinimumSpan, Columns));
+
+        var rowSpan = Math.Clamp(
+            card.RowSpan,
+            Math.Clamp(bounds.MinRows, MinimumSpan, Rows),
+            Math.Clamp(bounds.MaxRows, MinimumSpan, Rows));
 
         // Clamp the origin after the span so a card dragged toward an edge
         // slides back inside rather than being silently shrunk.

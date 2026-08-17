@@ -31,15 +31,15 @@ public sealed partial class MixerPage
         _ => kind.ToString(),
     };
 
-    private UIElement BuildCardContent(CardKind kind) => kind switch
+    private UIElement BuildCardContent(CardKind kind, CardDensity density) => kind switch
     {
         CardKind.AppMixer => BuildAppMixerCard(),
-        CardKind.MasterOutput => BuildMasterCard(),
+        CardKind.MasterOutput => BuildMasterCard(density),
         CardKind.OtherOutputs => BuildOtherOutputsCard(),
         CardKind.DisplaySpeakers => BuildDisplaySpeakersCard(),
         CardKind.HearingStatus => BuildHearingCard(),
-        CardKind.QuickActions => BuildQuickActionsCard(),
-        CardKind.NowPlaying => BuildNowPlayingCard(),
+        CardKind.QuickActions => BuildQuickActionsCard(density),
+        CardKind.NowPlaying => BuildNowPlayingCard(density),
         _ => new TextBlock { Text = "Unknown card" },
     };
 
@@ -121,7 +121,7 @@ public sealed partial class MixerPage
         return stack;
     }
 
-    private UIElement BuildMasterCard()
+    private UIElement BuildMasterCard(CardDensity density)
     {
         _masterDeviceNameText = new TextBlock { FontSize = 12, TextTrimming = TextTrimming.CharacterEllipsis };
         _masterVolumeText = new TextBlock
@@ -158,7 +158,14 @@ public sealed partial class MixerPage
         row.Children.Add(_masterVolumeText);
 
         var stack = new StackPanel { Spacing = 6 };
-        stack.Children.Add(_masterDeviceNameText);
+
+        // With one row to spare, the fader matters more than knowing which box
+        // it drives — and the device name is on the Diagnostics page regardless.
+        if (density != CardDensity.Compact)
+        {
+            stack.Children.Add(_masterDeviceNameText);
+        }
+
         stack.Children.Add(row);
 
         RefreshMasterDevice();
@@ -248,21 +255,42 @@ public sealed partial class MixerPage
         return stack;
     }
 
-    private UIElement BuildQuickActionsCard()
+    private UIElement BuildQuickActionsCard(CardDensity density)
     {
-        // Tight spacing so all four actions fit the card's default height
-        // rather than the last one being clipped.
+        var actions = new (string Label, int Glyph, Action Run)[]
+        {
+            ("Mute everything", 0xE74F, () => SetAllMuted(true)),
+            ("Unmute everything", 0xE767, () => SetAllMuted(false)),
+            ("Level everything to 100%", 0xE9E9, () => SetAllVolume(100)),
+            ("Clear focus", 0xE711, () => CrashLog.FireAndForget(ReleaseFocusAsync())),
+        };
+
+        // Stacked labelled buttons need a row each, and the fourth was the one
+        // that got cut. Short and wide, they become a row of icons instead —
+        // every action still reachable, each with its label as a tooltip.
+        if (density == CardDensity.Compact)
+        {
+            var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+
+            foreach (var (label, glyph, run) in actions)
+            {
+                row.Children.Add(IconActionButton(label, glyph, run));
+            }
+
+            return row;
+        }
+
         var stack = new StackPanel { Spacing = 4 };
 
-        stack.Children.Add(ActionButton("Mute everything", 0xE74F, () => SetAllMuted(true)));
-        stack.Children.Add(ActionButton("Unmute everything", 0xE767, () => SetAllMuted(false)));
-        stack.Children.Add(ActionButton("Level everything to 100%", 0xE9E9, () => SetAllVolume(100)));
-        stack.Children.Add(ActionButton("Clear focus", 0xE711, () => CrashLog.FireAndForget(ReleaseFocusAsync())));
+        foreach (var (label, glyph, run) in actions)
+        {
+            stack.Children.Add(ActionButton(label, glyph, run));
+        }
 
         return stack;
     }
 
-    private UIElement BuildNowPlayingCard()
+    private UIElement BuildNowPlayingCard(CardDensity density)
     {
         _nowPlayingText = new TextBlock
         {
@@ -276,7 +304,12 @@ public sealed partial class MixerPage
 
         var stack = new StackPanel { Spacing = 2 };
         stack.Children.Add(_nowPlayingText);
-        stack.Children.Add(_nowPlayingDetail);
+
+        if (density != CardDensity.Compact)
+        {
+            stack.Children.Add(_nowPlayingDetail);
+        }
+
         return stack;
     }
 
@@ -341,6 +374,20 @@ public sealed partial class MixerPage
         row.Children.Add(dot);
         row.Children.Add(text);
         return row;
+    }
+
+    /// <summary>The same action as a square icon button, for cards too short to stack labelled rows.</summary>
+    private static Button IconActionButton(string label, int glyph, Action action)
+    {
+        var button = new Button
+        {
+            Content = new FontIcon { Glyph = char.ConvertFromUtf32(glyph), FontSize = 14 },
+            Padding = new Thickness(9, 6, 9, 6),
+        };
+
+        ToolTipService.SetToolTip(button, label);
+        button.Click += (_, _) => action();
+        return button;
     }
 
     private static Button ActionButton(string text, int glyph, Action action)

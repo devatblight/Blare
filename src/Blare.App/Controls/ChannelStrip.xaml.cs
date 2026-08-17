@@ -93,6 +93,41 @@ public sealed partial class ChannelStrip : UserControl
         UpdateVolumeText();
     }
 
+    /// <summary>
+    /// Lays the strip out for the room it has.
+    ///
+    /// Each band drops the least important thing rather than scaling everything
+    /// down: a fader squeezed to forty pixels is not a smaller fader, it is an
+    /// unusable one. The fader and the app's identity survive every band because
+    /// without them the strip has no purpose.
+    /// </summary>
+    public void SetDensity(CardDensity density)
+    {
+        switch (density)
+        {
+            case CardDensity.Compact:
+                StripRoot.Width = 76;
+                MeterHost.Visibility = Visibility.Collapsed;
+                ButtonsRow.Visibility = Visibility.Collapsed;
+                SignalArea.MinHeight = 64;
+                break;
+
+            case CardDensity.Normal:
+                StripRoot.Width = 96;
+                MeterHost.Visibility = Visibility.Visible;
+                ButtonsRow.Visibility = Visibility.Visible;
+                SignalArea.MinHeight = 88;
+                break;
+
+            default:
+                StripRoot.Width = 104;
+                MeterHost.Visibility = Visibility.Visible;
+                ButtonsRow.Visibility = Visibility.Visible;
+                SignalArea.MinHeight = 150;
+                break;
+        }
+    }
+
     public void SetLevels(ReadOnlySpan<double> levels) => Meter.SetLevels(levels);
 
     /// <summary>Advances the meter with no new data so it falls away instead of freezing.</summary>

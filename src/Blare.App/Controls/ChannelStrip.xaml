@@ -8,7 +8,7 @@
     PointerEntered="OnPointerEntered"
     PointerExited="OnPointerExited">
 
-    <Grid Width="104">
+    <Grid x:Name="StripRoot" Width="104">
         <Border
             x:Name="StripBorder"
             Padding="10,12"
@@ -53,6 +53,7 @@
                     </Grid.ColumnDefinitions>
 
                     <Border
+                        x:Name="MeterHost"
                         Grid.Column="0"
                         CornerRadius="3"
                         Padding="3"
@@ -82,7 +83,7 @@
                     FontFamily="Consolas"
                     HorizontalAlignment="Center" />
 
-                <Grid Grid.Row="3" ColumnSpacing="6">
+                <Grid x:Name="ButtonsRow" Grid.Row="3" ColumnSpacing="6">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="*" />
@@ -106,7 +107,9 @@
                         Padding="0,4"
                         ToolTipService.ToolTip="Focus this app and duck everything else"
                         Click="OnFocusClicked">
-                        <FontIcon Glyph="&#xE71E;" FontSize="14" />
+                        <!-- Spelled out rather than an icon: this was a magnifier
+                             glyph, which reads as zoom or search, not as solo. -->
+                        <TextBlock Text="Focus" FontSize="10.5" FontWeight="SemiBold" />
                     </ToggleButton>
                 </Grid>
             </Grid>

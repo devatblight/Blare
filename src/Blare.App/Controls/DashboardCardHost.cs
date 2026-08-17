@@ -8,6 +8,22 @@ using Microsoft.UI.Xaml.Shapes;
 namespace Blight.Blare.App.Controls;
 
 /// <summary>
+/// How much room a card has to work with. Cards render a different layout in
+/// each band rather than shrinking one layout until it stops being readable.
+/// </summary>
+public enum CardDensity
+{
+    /// <summary>Barely more than a row: essentials only, labels dropped.</summary>
+    Compact,
+
+    /// <summary>Enough for the controls that matter, without the extras.</summary>
+    Normal,
+
+    /// <summary>Room for the full treatment, meters and all.</summary>
+    Expanded,
+}
+
+/// <summary>
 /// Wraps one card on the dashboard and, in edit mode, lets it be dragged,
 /// resized and removed.
 ///
@@ -23,6 +39,7 @@ public sealed class DashboardCardHost : ContentControl
     private readonly Rectangle _resizeGrip;
     private readonly TranslateTransform _dragOffset = new();
     private readonly ScaleTransform _liftScale = new() { ScaleX = 1, ScaleY = 1 };
+    private readonly StackPanel _body;
 
     private double _cellWidth = 1;
     private double _cellHeight = 1;
@@ -38,6 +55,20 @@ public sealed class DashboardCardHost : ContentControl
     {
         Card = card;
 
+        _body = new StackPanel { Spacing = 8 };
+        _body.Children.Add(new TextBlock
+        {
+            Text = title.ToUpperInvariant(),
+            FontSize = 9,
+            FontWeight = Microsoft.UI.Text.FontWeights.Bold,
+            Opacity = 0.5,
+        });
+
+        _body.Children.Add(content);
+
+        // Last line of defence against clipping. Card content adapts to the
+        // space it has, but a list of eight output devices can still outgrow any
+        // sensible minimum, and scrolling beats silently cutting content off.
         _chrome = new Border
         {
             CornerRadius = new CornerRadius(8),
@@ -45,11 +76,24 @@ public sealed class DashboardCardHost : ContentControl
             Background = Resource("BlareStripBackground"),
             BorderBrush = Resource("BlareStripBorder"),
             Padding = new Thickness(14, 12, 14, 12),
-            Child = BuildBody(title, content),
+            Child = new ScrollViewer
+            {
+                Content = _body,
+                VerticalScrollMode = ScrollMode.Auto,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                HorizontalScrollMode = ScrollMode.Disabled,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            },
         };
 
         // The edit affordances start transparent as well as collapsed: they are
         // faded in and out, and an opacity of 1 would make the first fade a no-op.
+        //
+        // This overlay must stay hit-testable. In edit mode the chrome below is
+        // switched off so the card's own sliders cannot swallow the gesture,
+        // which leaves this transparent layer as the only thing the pointer can
+        // land on — and therefore the entire drag surface. Marking it
+        // IsHitTestVisible="False" silently kills drag and drop.
         _editOverlay = new Border
         {
             CornerRadius = new CornerRadius(8),
@@ -58,7 +102,6 @@ public sealed class DashboardCardHost : ContentControl
             Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
             Visibility = Visibility.Collapsed,
             Opacity = 0,
-            IsHitTestVisible = false,
         };
 
         _resizeGrip = new Rectangle
@@ -115,6 +158,8 @@ public sealed class DashboardCardHost : ContentControl
         _resizeGrip.ManipulationStarted += OnResizeStarted;
         _resizeGrip.ManipulationDelta += OnResizeDelta;
         _resizeGrip.ManipulationCompleted += OnResizeCompleted;
+
+        SizeChanged += (_, e) => UpdateDensity(e.NewSize.Width, e.NewSize.Height);
     }
 
     public DashboardCard Card { get; private set; }
@@ -145,8 +190,47 @@ public sealed class DashboardCardHost : ContentControl
         Motion.SettleFrom(_dragOffset, _dragOffset.X - jumpX, _dragOffset.Y - jumpY);
     }
 
+    /// <summary>How much room this card currently has. Changes as it is resized or the window is.</summary>
+    public CardDensity Density { get; private set; } = CardDensity.Normal;
+
+    /// <summary>Raised when the card crosses into a different size band and its content should be rebuilt.</summary>
+    public event EventHandler<CardDensity>? DensityChanged;
+
+    /// <summary>Swaps the card's content, keeping its title and chrome.</summary>
+    public void SetBody(UIElement content)
+    {
+        // Index 0 is the title.
+        if (_body.Children.Count > 1)
+        {
+            _body.Children.RemoveAt(1);
+        }
+
+        _body.Children.Add(content);
+    }
+
     /// <summary>Fades the card in on its way to its slot, staggered behind the ones before it.</summary>
     public void PlayEntrance(int index) => Motion.EnterStaggered(this, _dragOffset, index);
+
+    private void UpdateDensity(double width, double height)
+    {
+        // Measured against the space left after the chrome's padding and title
+        // row, which is what the content actually gets.
+        var usableHeight = height - 46;
+
+        var density = width < 240 || usableHeight < 150
+            ? CardDensity.Compact
+            : usableHeight < 280
+                ? CardDensity.Normal
+                : CardDensity.Expanded;
+
+        if (density == Density)
+        {
+            return;
+        }
+
+        Density = density;
+        DensityChanged?.Invoke(this, density);
+    }
 
     public void SetCellSize(double width, double height)
     {
@@ -260,9 +344,19 @@ public sealed class DashboardCardHost : ContentControl
         _sizeDeltaX = e.Cumulative.Translation.X;
         _sizeDeltaY = e.Cumulative.Translation.Y;
 
-        // Grow live under the pointer rather than only on release.
-        Width = Math.Max(_cellWidth, (Card.ColumnSpan * _cellWidth) + _sizeDeltaX);
-        Height = Math.Max(_cellHeight, (Card.RowSpan * _cellHeight) + _sizeDeltaY);
+        // Grow live under the pointer, but stop at the card's own limits rather
+        // than letting it be dragged to a size the model will only snap back.
+        var bounds = CardSizing.For(Card.Kind);
+
+        Width = Math.Clamp(
+            (Card.ColumnSpan * _cellWidth) + _sizeDeltaX,
+            bounds.MinColumns * _cellWidth,
+            bounds.MaxColumns * _cellWidth);
+
+        Height = Math.Clamp(
+            (Card.RowSpan * _cellHeight) + _sizeDeltaY,
+            bounds.MinRows * _cellHeight,
+            bounds.MaxRows * _cellHeight);
 
         e.Handled = true;
     }
@@ -292,22 +386,6 @@ public sealed class DashboardCardHost : ContentControl
         _dragOffset.X = 0;
         _dragOffset.Y = 0;
         Opacity = 1;
-    }
-
-    private static UIElement BuildBody(string title, UIElement content)
-    {
-        var stack = new StackPanel { Spacing = 8 };
-
-        stack.Children.Add(new TextBlock
-        {
-            Text = title.ToUpperInvariant(),
-            FontSize = 9,
-            FontWeight = Microsoft.UI.Text.FontWeights.Bold,
-            Opacity = 0.5,
-        });
-
-        stack.Children.Add(content);
-        return stack;
     }
 
     private static Brush? Resource(string key) =>

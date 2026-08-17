@@ -66,6 +66,9 @@ public sealed partial class MixerPage : Page
     private bool _suppressMasterVolumePush;
     private string? _masterDeviceId;
 
+    /// <summary>The band the mixer card is currently in, so strips created later match the ones already there.</summary>
+    private CardDensity _stripDensity = CardDensity.Normal;
+
     /// <summary>Levels captured before focus was engaged, so releasing focus puts the desk back exactly as it was.</summary>
     private IReadOnlyList<FocusLevel>? _levelsBeforeFocus;
     private string? _focusedAppKey;
@@ -171,10 +174,13 @@ public sealed partial class MixerPage : Page
 
         foreach (var card in _dashboardStore.Layout.Cards)
         {
-            var host = new DashboardCardHost(card, TitleFor(card.Kind), BuildCardContent(card.Kind));
+            // Built at Normal; the first layout pass reports the card's real size
+            // and rebuilds it in the right band if that isn't what it got.
+            var host = new DashboardCardHost(card, TitleFor(card.Kind), BuildCardContent(card.Kind, CardDensity.Normal));
             host.Previewing += OnCardPreviewing;
             host.Committed += OnCardCommitted;
             host.RemoveButton.Click += (_, _) => RemoveCard(card.Id);
+            host.DensityChanged += OnCardDensityChanged;
             host.SetEditing(EditModeToggle.IsChecked == true);
             host.PlayEntrance(index++);
 
@@ -184,6 +190,36 @@ public sealed partial class MixerPage : Page
 
         LayoutCards();
         CrashLog.FireAndForget(RefreshSessionsAsync());
+    }
+
+    /// <summary>
+    /// A card has crossed into a different size band, so its content is rebuilt
+    /// for the room it now has.
+    ///
+    /// The mixer is the exception: its strips already know how to lay themselves
+    /// out, and rebuilding the card would throw away every meter's state and
+    /// re-resolve every icon for no reason.
+    /// </summary>
+    private void OnCardDensityChanged(object? sender, CardDensity density)
+    {
+        if (sender is not DashboardCardHost host)
+        {
+            return;
+        }
+
+        if (host.Card.Kind == CardKind.AppMixer)
+        {
+            _stripDensity = density;
+
+            foreach (var strip in _strips.Values)
+            {
+                strip.SetDensity(density);
+            }
+
+            return;
+        }
+
+        host.SetBody(BuildCardContent(host.Card.Kind, density));
     }
 
     private void OnSurfaceSizeChanged(object sender, SizeChangedEventArgs e)
@@ -551,8 +587,12 @@ public sealed partial class MixerPage : Page
         var now = DateTimeOffset.UtcNow;
         var ceiling = VolumeCoordinator.MaximumPercent;
 
+        // Blare holds an audio session of its own and turns up on the desk as a
+        // strip you can fade. It plays nothing, so that strip is pure noise.
+        var ownProcessId = (uint)Environment.ProcessId;
+
         var liveSessions = _sessionManager.GetSessionsForDefaultDevice()
-            .Where(s => !s.IsSystemSoundsSession)
+            .Where(s => !s.IsSystemSoundsSession && s.ProcessId != ownProcessId)
             .Select(session =>
             {
                 var (displayName, executablePath) = ResolveProcessInfo(session);
@@ -630,6 +670,7 @@ public sealed partial class MixerPage : Page
             viewModel.PropertyChanged += OnViewModelPropertyChanged;
 
             var strip = new ChannelStrip();
+            strip.SetDensity(_stripDensity);
             strip.Bind(viewModel);
             strip.FocusRequested += (_, key) => CrashLog.FireAndForget(ToggleFocusAsync(key));
 
