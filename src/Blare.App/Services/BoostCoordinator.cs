@@ -13,9 +13,17 @@ namespace BLight.Blare.App.Services;
 /// </summary>
 public sealed class BoostCoordinator
 {
-    // Held at unity while the boost pipeline is out of action (see
-    // SetVolumePercentAsync) so faders can't be dragged into a range that
-    // does nothing.
+    /// <summary>
+    /// Whether above-unity boost can work at all on this build. False because
+    /// per-process loopback capture is applied after session volume and mute,
+    /// so the original can't be silenced and re-amplified — see
+    /// <see cref="SetVolumePercentAsync"/>. Surfaced in the UI so the boost
+    /// controls state the truth rather than offering a setting that does nothing.
+    /// </summary>
+    public const bool BoostAvailable = false;
+
+    // Held at unity while the boost pipeline is out of action so faders can't
+    // be dragged into a range that does nothing.
     public const double SafeCeilingPercent = 100;
     public const double OverriddenCeilingPercent = 100;
 

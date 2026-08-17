@@ -6,211 +6,414 @@ using BLight.Blare.Audio.Sessions;
 using BLight.Blare.Core.Safety;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Dispatching;
+using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
 using Windows.ApplicationModel.DataTransfer;
 
 namespace BLight.Blare.App.Views;
 
 /// <summary>
-/// Live view of everything Blare is doing. Exists so no behaviour is hidden
-/// from the user: which sessions are seen, which capture streams are running,
-/// what safety state is in force and when it expires, and where settings live
-/// on disk. Read-only by design.
+/// Live view of everything Blare is doing, so no behaviour is hidden.
+///
+/// Built in code rather than XAML for two reasons: each section can fail
+/// independently into an inline error instead of taking the page (and the app)
+/// down, and rows are generated from live data rather than duplicated markup.
 /// </summary>
 public sealed partial class DiagnosticsPage : Page
 {
-    private readonly AudioSessionManager _sessionManager;
-    private readonly AudioDeviceManager _deviceManager;
-    private readonly SpectrumMonitor _spectrumMonitor;
-    private readonly SafetyMonitor _safetyMonitor;
-    private readonly BoostCoordinator _boostCoordinator;
-    private readonly ConsentState _consent;
-    private readonly ThemeService _themeService;
-    private readonly AppPaths _paths;
-    private readonly DispatcherQueueTimer _refreshTimer;
+    private readonly Dictionary<string, StackPanel> _sectionBodies = new();
+    private DispatcherQueueTimer? _refreshTimer;
+
+    // Segoe MDL2 Assets code points, given numerically because the glyphs sit in
+    // the Unicode private use area and do not survive being pasted around.
+    private static readonly (string Title, int Glyph, string Blurb)[] Sections =
+    [
+        ("Playing now", 0xE767, "Apps Windows currently reports as holding an audio session."),
+        ("Output devices", 0xE7F5, "Every output Windows can see. The starred one is the default."),
+        ("Live analysis", 0xE9D9, "Audio capture feeding the spectrum meters."),
+        ("Hearing safety", 0xE7BA, "What Blare is tracking and which protections are in force."),
+        ("Boost", 0xEC48, "Why above-100% boost is currently unavailable."),
+        ("App & storage", 0xE713, "Where Blare keeps its settings, and what it is running on."),
+        ("Recent errors", 0xE783, "Problems Blare recorded. Empty is good."),
+    ];
 
     public DiagnosticsPage()
     {
-        _sessionManager = App.Services.GetRequiredService<AudioSessionManager>();
-        _deviceManager = App.Services.GetRequiredService<AudioDeviceManager>();
-        _spectrumMonitor = App.Services.GetRequiredService<SpectrumMonitor>();
-        _safetyMonitor = App.Services.GetRequiredService<SafetyMonitor>();
-        _boostCoordinator = App.Services.GetRequiredService<BoostCoordinator>();
-        _consent = App.Services.GetRequiredService<ConsentState>();
-        _themeService = App.Services.GetRequiredService<ThemeService>();
-        _paths = App.Services.GetRequiredService<AppPaths>();
-
         InitializeComponent();
+
+        foreach (var (title, glyph, blurb) in Sections)
+        {
+            AddSection(title, glyph, blurb);
+        }
 
         _refreshTimer = DispatcherQueue.CreateTimer();
         _refreshTimer.Interval = TimeSpan.FromSeconds(1);
         _refreshTimer.Tick += (_, _) => Refresh();
         _refreshTimer.Start();
 
-        Unloaded += (_, _) => _refreshTimer.Stop();
+        Unloaded += (_, _) => _refreshTimer?.Stop();
 
         Refresh();
     }
+
+    // ---- section scaffolding -------------------------------------------------
+
+    private void AddSection(string title, int glyph, string blurb)
+    {
+        var body = new StackPanel { Spacing = 2 };
+
+        var heading = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        heading.Children.Add(new FontIcon { Glyph = char.ConvertFromUtf32(glyph), FontSize = 14, Foreground = Brush("BlareAccent") });
+        heading.Children.Add(new TextBlock { Text = title, FontSize = 14, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });
+
+        var stack = new StackPanel { Spacing = 4 };
+        stack.Children.Add(heading);
+        stack.Children.Add(new TextBlock { Text = blurb, FontSize = 11.5, Opacity = 0.55, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 6) });
+        stack.Children.Add(body);
+
+        var border = new Border
+        {
+            Padding = new Thickness(14, 12, 14, 12),
+            CornerRadius = new CornerRadius(6),
+            BorderThickness = new Thickness(1),
+            Background = Brush("BlareStripBackground"),
+            BorderBrush = Brush("BlareStripBorder"),
+            Child = stack,
+        };
+
+        SectionsPanel.Children.Add(border);
+        _sectionBodies[title] = body;
+    }
+
+    private static Brush? Brush(string key) =>
+        Application.Current.Resources.TryGetValue(key, out var value) ? value as Brush : null;
+
+    /// <summary>A label/value line — the workhorse of this page.</summary>
+    private static UIElement Row(string label, string value, Brush? valueBrush = null)
+    {
+        var grid = new Grid { ColumnSpacing = 14, Margin = new Thickness(0, 3, 0, 3) };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(150) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        var labelBlock = new TextBlock { Text = label, FontSize = 12.5, Opacity = 0.6, TextWrapping = TextWrapping.Wrap };
+        var valueBlock = new TextBlock
+        {
+            Text = value,
+            FontSize = 12.5,
+            TextWrapping = TextWrapping.Wrap,
+            IsTextSelectionEnabled = true,
+        };
+
+        if (valueBrush is not null)
+        {
+            valueBlock.Foreground = valueBrush;
+        }
+
+        Grid.SetColumn(labelBlock, 0);
+        Grid.SetColumn(valueBlock, 1);
+        grid.Children.Add(labelBlock);
+        grid.Children.Add(valueBlock);
+        return grid;
+    }
+
+    private static UIElement Note(string text) => new TextBlock
+    {
+        Text = text,
+        FontSize = 11.5,
+        Opacity = 0.55,
+        TextWrapping = TextWrapping.Wrap,
+        Margin = new Thickness(0, 8, 0, 0),
+    };
+
+    /// <summary>A coloured state pill, so "is this fine?" reads without parsing text.</summary>
+    private static UIElement Pill(string text, string brushKey)
+    {
+        return new Border
+        {
+            Background = Brush(brushKey),
+            CornerRadius = new CornerRadius(3),
+            Padding = new Thickness(7, 1, 7, 2),
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Margin = new Thickness(0, 3, 0, 3),
+            Child = new TextBlock
+            {
+                Text = text,
+                FontSize = 10.5,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = new SolidColorBrush(Microsoft.UI.Colors.Black),
+            },
+        };
+    }
+
+    // ---- refresh -------------------------------------------------------------
 
     private void OnLiveToggled(object sender, RoutedEventArgs e)
     {
         if (LiveToggle.IsOn)
         {
-            _refreshTimer.Start();
+            _refreshTimer?.Start();
         }
         else
         {
-            _refreshTimer.Stop();
+            _refreshTimer?.Stop();
         }
-    }
-
-    private void OnCopyClicked(object sender, RoutedEventArgs e)
-    {
-        var report = new StringBuilder()
-            .AppendLine("=== AUDIO SESSIONS ===").AppendLine(SessionsText.Text)
-            .AppendLine("=== OUTPUT DEVICES ===").AppendLine(DevicesText.Text)
-            .AppendLine("=== CAPTURE & ANALYSIS ===").AppendLine(CaptureText.Text)
-            .AppendLine("=== SAFETY STATE ===").AppendLine(SafetyText.Text)
-            .AppendLine("=== BOOST ENGINE ===").AppendLine(BoostText.Text)
-            .AppendLine("=== ENVIRONMENT ===").AppendLine(EnvironmentText.Text)
-            .ToString();
-
-        var package = new DataPackage();
-        package.SetText(report);
-        Clipboard.SetContent(package);
     }
 
     private void Refresh()
     {
         var now = DateTimeOffset.UtcNow;
 
-        RefreshSessions();
-        RefreshDevices();
-        RefreshCapture();
-        RefreshSafety(now);
-        RefreshBoost(now);
-        RefreshEnvironment();
+        Fill("Playing now", BuildSessions);
+        Fill("Output devices", BuildDevices);
+        Fill("Live analysis", BuildAnalysis);
+        Fill("Hearing safety", body => BuildSafety(body, now));
+        Fill("Boost", body => BuildBoost(body, now));
+        Fill("App & storage", BuildEnvironment);
+        Fill("Recent errors", BuildErrors);
     }
 
-    private void RefreshSessions()
+    /// <summary>Rebuilds one section, degrading to an inline message if it throws.</summary>
+    private void Fill(string title, Action<StackPanel> build)
     {
+        if (!_sectionBodies.TryGetValue(title, out var body))
+        {
+            return;
+        }
+
+        body.Children.Clear();
+
         try
         {
-            var sessions = _sessionManager.GetSessionsForDefaultDevice();
-            var text = new StringBuilder();
-
-            foreach (var session in sessions)
-            {
-                text.AppendLine(
-                    $"pid {session.ProcessId,-7} vol {session.Volume,6:P0}  peak {session.PeakLevel,7:F4}  " +
-                    $"{(session.IsMuted ? "MUTED  " : "       ")}" +
-                    $"{(session.IsSystemSoundsSession ? "system " : "       ")}" +
-                    $"{(string.IsNullOrWhiteSpace(session.DisplayName) ? "" : session.DisplayName)}");
-            }
-
-            SessionsText.Text = sessions.Count == 0 ? "(no sessions)" : text.ToString().TrimEnd();
+            build(body);
         }
         catch (Exception ex)
         {
-            SessionsText.Text = $"Failed to enumerate sessions: {ex.Message}";
+            body.Children.Add(Row("Unavailable", $"{ex.GetType().Name}: {ex.Message}", Brush("BlareMeterHigh")));
         }
     }
 
-    private void RefreshDevices()
+    private static T Service<T>() where T : notnull => App.Services.GetRequiredService<T>();
+
+    private static void BuildSessions(StackPanel body)
     {
+        var sessions = Service<AudioSessionManager>().GetSessionsForDefaultDevice();
+
+        if (sessions.Count == 0)
+        {
+            body.Children.Add(Row("Sessions", "Nothing is playing"));
+            return;
+        }
+
+        foreach (var session in sessions.OrderByDescending(s => s.PeakLevel))
+        {
+            var name = ResolveName(session);
+            var state = session.IsMuted ? "muted" : session.PeakLevel > 0.001f ? "playing" : "silent";
+            var detail = $"{session.Volume:P0} volume · {state} · pid {session.ProcessId}";
+
+            body.Children.Add(Row(name, detail, session.PeakLevel > 0.001f ? Brush("BlareMeterLow") : null));
+        }
+    }
+
+    private static string ResolveName(AudioSessionInfo session)
+    {
+        if (session.IsSystemSoundsSession)
+        {
+            return "Windows sounds";
+        }
+
+        if (!string.IsNullOrWhiteSpace(session.DisplayName))
+        {
+            return session.DisplayName;
+        }
+
         try
         {
-            var devices = _deviceManager.GetRenderDevices();
-            var text = new StringBuilder();
-
-            foreach (var device in devices)
-            {
-                var volume = _deviceManager.GetMasterVolume(device.DeviceId);
-                text.AppendLine($"{(device.IsDefault ? "* " : "  ")}{volume,5:P0}  {device.DisplayName}");
-            }
-
-            DevicesText.Text = text.ToString().TrimEnd();
+            using var process = System.Diagnostics.Process.GetProcessById((int)session.ProcessId);
+            return process.ProcessName;
         }
-        catch (Exception ex)
+        catch
         {
-            DevicesText.Text = $"Failed to enumerate devices: {ex.Message}";
+            return $"pid {session.ProcessId}";
         }
     }
 
-    private void RefreshCapture()
+    private static void BuildDevices(StackPanel body)
     {
-        var watched = _spectrumMonitor.WatchedProcesses;
-        var text = new StringBuilder()
-            .AppendLine($"FFT bands        {_spectrumMonitor.BandCount}")
-            .AppendLine($"capture streams  {watched.Count}");
+        var deviceManager = Service<AudioDeviceManager>();
 
-        if (watched.Count > 0)
+        foreach (var device in deviceManager.GetRenderDevices())
         {
-            text.AppendLine($"watching pids    {string.Join(", ", watched.OrderBy(p => p))}");
+            var volume = deviceManager.GetMasterVolume(device.DeviceId);
+            body.Children.Add(Row(
+                device.IsDefault ? $"★ {device.DisplayName}" : device.DisplayName,
+                $"{volume:P0} volume",
+                device.IsDefault ? Brush("BlareAccent") : null));
         }
-
-        text.AppendLine();
-        text.AppendLine("Each stream is one per-process WASAPI loopback capture plus an FFT.");
-        text.AppendLine("Streams stop when the mixer page is not visible.");
-
-        CaptureText.Text = text.ToString().TrimEnd();
     }
 
-    private void RefreshSafety(DateTimeOffset now)
+    private static void BuildAnalysis(StackPanel body)
     {
-        var text = new StringBuilder()
-            .AppendLine($"warnings raised     {_safetyMonitor.WarningCount}")
-            .AppendLine($"total time loud     {_safetyMonitor.TotalTimeAboveThreshold.TotalMinutes:F1} min")
-            .AppendLine($"warnings suppressed {(_safetyMonitor.WarningsDisabled(now) ? "YES" : "no")}")
-            .AppendLine()
-            .AppendLine($"re-confirmation interval  {_consent.ReconfirmationInterval.TotalDays:F0} days");
+        var monitor = Service<SpectrumMonitor>();
+        var statuses = monitor.Statuses;
 
-        var records = _consent.Records.ToList();
+        body.Children.Add(Row("Frequency bands", monitor.BandCount.ToString()));
+        body.Children.Add(Row("Capture streams", statuses.Count == 0 ? "none running" : statuses.Count.ToString()));
+
+        foreach (var status in statuses.OrderBy(s => s.ProcessId))
+        {
+            var value = status.Error is { } error
+                ? $"failed — {error}"
+                : status.BlocksReceived == 0
+                    ? "connected, no audio received yet"
+                    : $"receiving audio ({status.BlocksReceived:N0} blocks)";
+
+            var brush = status.Error is not null
+                ? Brush("BlareMeterHigh")
+                : status.BlocksReceived > 0
+                    ? Brush("BlareMeterLow")
+                    : Brush("BlareMeterMid");
+
+            body.Children.Add(Row($"pid {status.ProcessId}", value, brush));
+        }
+
+        body.Children.Add(Note(
+            "Each stream is one per-process audio capture plus a Fourier transform. " +
+            "They stop when the mixer isn't on screen. If a meter isn't moving, the row above says why."));
+    }
+
+    private static void BuildSafety(StackPanel body, DateTimeOffset now)
+    {
+        var safety = Service<SafetyMonitor>();
+        var consent = Service<ConsentState>();
+
+        var suppressed = safety.WarningsDisabled(now);
+
+        body.Children.Add(Pill(
+            suppressed ? "PROTECTION OFF" : "PROTECTION ON",
+            suppressed ? "BlareMeterHigh" : "BlareMeterLow"));
+
+        body.Children.Add(Row("Warnings raised", safety.WarningCount.ToString()));
+        body.Children.Add(Row("Time spent loud", $"{safety.TotalTimeAboveThreshold.TotalMinutes:F0} minutes"));
+        body.Children.Add(Row("Re-confirm after", $"{consent.ReconfirmationInterval.TotalDays:F0} days"));
+
+        var records = consent.Records.Where(r => r.IsActive).ToList();
         if (records.Count == 0)
         {
-            text.AppendLine("no consent records — all protections at their safe defaults");
+            body.Children.Add(Row("Opt-outs", "None — everything at its safe default"));
         }
         else
         {
             foreach (var record in records)
             {
-                var active = _consent.IsActive(record.Kind, now);
-                var remaining = _consent.TimeUntilExpiry(record.Kind, now);
+                var friendly = record.Kind == ConsentKind.SafetyWarningsDisabled
+                    ? "Health warnings off"
+                    : "Boost ceiling raised";
 
-                text.AppendLine(
-                    $"{record.Kind,-26} {(active ? "ACTIVE" : "off   ")}" +
-                    (remaining is { } left ? $"  lapses in {left.TotalDays:F1} days" : string.Empty));
+                var remaining = consent.TimeUntilExpiry(record.Kind, now);
+                body.Children.Add(Row(
+                    friendly,
+                    remaining is { } left
+                        ? $"active · returns to safe in {left.TotalDays:F0} days"
+                        : "lapsed · back to safe default",
+                    Brush("BlareMeterMid")));
             }
         }
 
-        SafetyText.Text = text.ToString().TrimEnd();
+        body.Children.Add(Note(
+            "Blare measures relative signal level, not actual sound pressure at your ears — " +
+            "it can't know your speaker or headphone volume."));
     }
 
-    private void RefreshBoost(DateTimeOffset now)
+    private static void BuildBoost(StackPanel body, DateTimeOffset now)
     {
-        BoostText.Text = new StringBuilder()
-            .AppendLine($"boost pipeline   DISABLED")
-            .AppendLine($"apps boosted     {_boostCoordinator.BoostedCount}")
-            .AppendLine($"volume ceiling   {_boostCoordinator.CurrentCeilingPercent(now):F0}%")
-            .AppendLine()
-            .AppendLine("Above-unity boost is off because per-process loopback capture is")
-            .AppendLine("applied after session volume and mute: silencing the original to")
-            .AppendLine("replace it also silences the copy being amplified. Measured as")
-            .AppendLine("captured peak 0.000000 when muted, 0.567 when not.")
-            .ToString().TrimEnd();
+        var boost = Service<BoostCoordinator>();
+
+        body.Children.Add(Pill(
+            BoostCoordinator.BoostAvailable ? "AVAILABLE" : "UNAVAILABLE",
+            BoostCoordinator.BoostAvailable ? "BlareMeterLow" : "BlareMeterMid"));
+
+        body.Children.Add(Row("Volume ceiling", $"{boost.CurrentCeilingPercent(now):F0}%"));
+        body.Children.Add(Row("Apps boosted", boost.BoostedCount.ToString()));
+
+        body.Children.Add(Note(
+            "Windows applies an app's volume before Blare can capture its audio, so silencing " +
+            "the original to replace it with a louder copy silences the copy too. Measured: a " +
+            "muted app captures at 0.000000 where an unmuted one captures at 0.567. " +
+            "Use Focus on a channel strip to make one app dominant instead."));
     }
 
-    private void RefreshEnvironment()
+    private static void BuildEnvironment(StackPanel body)
     {
-        EnvironmentText.Text = new StringBuilder()
-            .AppendLine($"theme        {_themeService.Current}")
-            .AppendLine($"settings     {_paths.SettingsDirectory}")
-            .AppendLine($"OS           {Environment.OSVersion.VersionString}")
-            .AppendLine($"process      {Environment.ProcessId} ({(Environment.Is64BitProcess ? "x64" : "x86")})")
-            .AppendLine($"working set  {Environment.WorkingSet / 1024 / 1024} MB")
-            .AppendLine()
-            .AppendLine("Blare makes no network connections. Nothing here leaves this machine.")
-            .ToString().TrimEnd();
+        var theme = Service<ThemeService>();
+        var backdrop = Service<BackdropService>();
+        var paths = Service<AppPaths>();
+
+        body.Children.Add(Row("Theme", theme.Current.ToString()));
+        body.Children.Add(Row(
+            "Window material",
+            backdrop.Requested == backdrop.EffectiveKind
+                ? backdrop.EffectiveKind.ToString()
+                : $"{backdrop.EffectiveKind} (asked for {backdrop.Requested})"));
+        body.Children.Add(Row("Mica", BackdropService.MicaSupported ? "supported" : "not available on this Windows version"));
+        body.Children.Add(Row("Acrylic", BackdropService.AcrylicSupported ? "supported" : "not available on this Windows version"));
+        body.Children.Add(Row("Settings folder", paths.SettingsDirectory));
+        body.Children.Add(Row("Error log", CrashLog.FilePath));
+        body.Children.Add(Row("Windows", Environment.OSVersion.VersionString));
+        body.Children.Add(Row("Memory in use", $"{Environment.WorkingSet / 1024 / 1024} MB"));
+
+        body.Children.Add(Note("Blare makes no network connections. Nothing here leaves this machine."));
+    }
+
+    private static void BuildErrors(StackPanel body)
+    {
+        var log = CrashLog.ReadRecent(3000);
+
+        if (log.StartsWith('('))
+        {
+            body.Children.Add(Row("Status", "No errors recorded", Brush("BlareMeterLow")));
+            return;
+        }
+
+        body.Children.Add(new TextBlock
+        {
+            Text = log.Trim(),
+            FontFamily = new FontFamily("Consolas"),
+            FontSize = 11.5,
+            TextWrapping = TextWrapping.Wrap,
+            IsTextSelectionEnabled = true,
+        });
+    }
+
+    // ---- copy ----------------------------------------------------------------
+
+    private void OnCopyClicked(object sender, RoutedEventArgs e)
+    {
+        var report = new StringBuilder($"Blare diagnostics — {DateTimeOffset.Now:u}").AppendLine().AppendLine();
+
+        foreach (var (title, panel) in _sectionBodies)
+        {
+            report.AppendLine($"## {title}");
+            foreach (var text in panel.Children.OfType<Grid>()
+                         .Select(grid => grid.Children.OfType<TextBlock>().Select(t => t.Text).ToList())
+                         .Where(parts => parts.Count == 2))
+            {
+                report.AppendLine($"  {text[0],-22} {text[1]}");
+            }
+
+            report.AppendLine();
+        }
+
+        try
+        {
+            var package = new DataPackage();
+            package.SetText(report.ToString());
+            Clipboard.SetContent(package);
+        }
+        catch (Exception ex)
+        {
+            CrashLog.Write(ex);
+        }
     }
 }

@@ -6,139 +6,117 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006">
 
-    <Grid Padding="16" RowSpacing="12">
+    <Grid Padding="16" RowSpacing="10">
         <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <!-- Master bus: the whole output, styled as the desk's master section -->
+        <!-- Master console: device, fader, readout, and an inline status line.
+             Deliberately one panel rather than a row of stat cards. -->
         <Border
             Grid.Row="0"
-            Padding="14,12"
+            Padding="14,10"
             CornerRadius="{ThemeResource BlareStripCornerRadius}"
             Background="{ThemeResource BlareStripBackground}"
             BorderBrush="{ThemeResource BlareStripBorder}"
             BorderThickness="1">
-            <Grid ColumnSpacing="14">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
+            <StackPanel Spacing="8">
+                <Grid ColumnSpacing="14">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
 
-                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
-                    <FontIcon Glyph="&#xE7F5;" FontSize="18" Foreground="{ThemeResource BlareAccent}" />
-                    <StackPanel>
-                        <TextBlock Text="MASTER" FontSize="10" FontWeight="Bold" Opacity="0.6" />
-                        <TextBlock x:Name="MasterDeviceNameText" FontSize="12" MaxWidth="190" TextTrimming="CharacterEllipsis" />
+                    <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="9" VerticalAlignment="Center">
+                        <FontIcon Glyph="&#xE7F5;" FontSize="16" Foreground="{ThemeResource BlareAccent}" />
+                        <StackPanel>
+                            <TextBlock Text="MASTER" FontSize="9" FontWeight="Bold" Opacity="0.5" />
+                            <TextBlock
+                                x:Name="MasterDeviceNameText"
+                                FontSize="12"
+                                MaxWidth="230"
+                                TextTrimming="CharacterEllipsis" />
+                        </StackPanel>
+                    </StackPanel>
+
+                    <Slider
+                        x:Name="MasterVolumeSlider"
+                        Grid.Column="1"
+                        Minimum="0"
+                        Maximum="100"
+                        VerticalAlignment="Center"
+                        ValueChanged="OnMasterVolumeChanged" />
+
+                    <TextBlock
+                        x:Name="MasterVolumeText"
+                        Grid.Column="2"
+                        Text="0%"
+                        FontFamily="Consolas"
+                        FontSize="13"
+                        VerticalAlignment="Center"
+                        MinWidth="42"
+                        TextAlignment="Right" />
+                </Grid>
+
+                <Border Height="1" Background="{ThemeResource BlareStripBorder}" />
+
+                <!-- Inline status: small indicator dots, not KPI tiles -->
+                <StackPanel Orientation="Horizontal" Spacing="18">
+                    <StackPanel Orientation="Horizontal" Spacing="7" VerticalAlignment="Center">
+                        <Ellipse x:Name="BoostDot" Width="7" Height="7" Fill="{ThemeResource BlareMeterUnlit}" />
+                        <TextBlock x:Name="BoostedCountText" Text="no boost" FontSize="11.5" Opacity="0.8" />
+                    </StackPanel>
+
+                    <StackPanel Orientation="Horizontal" Spacing="7" VerticalAlignment="Center">
+                        <Ellipse x:Name="WarningDot" Width="7" Height="7" Fill="{ThemeResource BlareMeterUnlit}" />
+                        <TextBlock x:Name="WarningCountText" Text="no warnings" FontSize="11.5" Opacity="0.8" />
+                    </StackPanel>
+
+                    <StackPanel Orientation="Horizontal" Spacing="7" VerticalAlignment="Center">
+                        <Ellipse x:Name="ExposureDot" Width="7" Height="7" Fill="{ThemeResource BlareMeterUnlit}" />
+                        <TextBlock x:Name="ExposureText" Text="0m loud today" FontSize="11.5" Opacity="0.8" />
                     </StackPanel>
                 </StackPanel>
-
-                <Slider
-                    x:Name="MasterVolumeSlider"
-                    Grid.Column="1"
-                    Minimum="0"
-                    Maximum="100"
-                    VerticalAlignment="Center"
-                    ValueChanged="OnMasterVolumeChanged" />
-
-                <TextBlock
-                    x:Name="MasterVolumeText"
-                    Grid.Column="2"
-                    Text="0%"
-                    FontFamily="Consolas"
-                    FontSize="13"
-                    VerticalAlignment="Center"
-                    MinWidth="44"
-                    TextAlignment="Right" />
-            </Grid>
+            </StackPanel>
         </Border>
-
-        <!-- Status tiles: big value, small label, coloured accent edge -->
-        <Grid Grid.Row="1" ColumnSpacing="10">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="*" />
-            </Grid.ColumnDefinitions>
-
-            <Border Grid.Column="0" CornerRadius="{ThemeResource BlareStripCornerRadius}" Background="{ThemeResource BlareStripBackground}" BorderBrush="{ThemeResource BlareStripBorder}" BorderThickness="1">
-                <Grid>
-                    <Border Width="3" HorizontalAlignment="Left" CornerRadius="2" Background="{ThemeResource BlareMeterHigh}" />
-                    <StackPanel Margin="14,10" Spacing="1">
-                        <StackPanel Orientation="Horizontal" Spacing="6">
-                            <TextBlock x:Name="BoostedCountText" Text="0" FontSize="22" FontWeight="SemiBold" FontFamily="Consolas" />
-                            <FontIcon Glyph="&#xEC48;" FontSize="12" Foreground="{ThemeResource BlareMeterHigh}" VerticalAlignment="Bottom" Margin="0,0,0,5" />
-                        </StackPanel>
-                        <TextBlock Text="BOOSTED" FontSize="10" FontWeight="SemiBold" Opacity="0.55" />
-                    </StackPanel>
-                </Grid>
-            </Border>
-
-            <Border Grid.Column="1" CornerRadius="{ThemeResource BlareStripCornerRadius}" Background="{ThemeResource BlareStripBackground}" BorderBrush="{ThemeResource BlareStripBorder}" BorderThickness="1">
-                <Grid>
-                    <Border Width="3" HorizontalAlignment="Left" CornerRadius="2" Background="{ThemeResource BlareMeterMid}" />
-                    <StackPanel Margin="14,10" Spacing="1">
-                        <StackPanel Orientation="Horizontal" Spacing="6">
-                            <TextBlock x:Name="WarningCountText" Text="0" FontSize="22" FontWeight="SemiBold" FontFamily="Consolas" />
-                            <FontIcon Glyph="&#xE7BA;" FontSize="12" Foreground="{ThemeResource BlareMeterMid}" VerticalAlignment="Bottom" Margin="0,0,0,5" />
-                        </StackPanel>
-                        <TextBlock Text="WARNINGS" FontSize="10" FontWeight="SemiBold" Opacity="0.55" />
-                    </StackPanel>
-                </Grid>
-            </Border>
-
-            <Border Grid.Column="2" CornerRadius="{ThemeResource BlareStripCornerRadius}" Background="{ThemeResource BlareStripBackground}" BorderBrush="{ThemeResource BlareStripBorder}" BorderThickness="1">
-                <Grid>
-                    <Border Width="3" HorizontalAlignment="Left" CornerRadius="2" Background="{ThemeResource BlareAccent}" />
-                    <StackPanel Margin="14,10" Spacing="4">
-                        <TextBlock x:Name="ExposureText" Text="0m" FontSize="22" FontWeight="SemiBold" FontFamily="Consolas" />
-                        <StackPanel Spacing="3">
-                            <TextBlock Text="TIME LOUD" FontSize="10" FontWeight="SemiBold" Opacity="0.55" />
-                            <ProgressBar x:Name="ExposureBar" Height="3" Minimum="0" Maximum="100" Value="0" CornerRadius="2" Foreground="{ThemeResource BlareAccent}" />
-                        </StackPanel>
-                    </StackPanel>
-                </Grid>
-            </Border>
-        </Grid>
 
         <InfoBar
             x:Name="WarningInfoBar"
-            Grid.Row="2"
-            VerticalAlignment="Top"
+            Grid.Row="1"
             Severity="Warning"
             Title="Running loud"
             IsOpen="False"
-            CornerRadius="8" />
+            CornerRadius="6" />
 
         <InfoBar
             x:Name="FocusBanner"
             Grid.Row="2"
-            VerticalAlignment="Top"
             Severity="Informational"
             Title="Focus mode"
             IsOpen="False"
             IsClosable="True"
             CloseButtonClick="OnFocusBannerClosed"
-            CornerRadius="8" />
+            CornerRadius="6" />
 
-        <!-- The desk itself: one strip per app, scrolling horizontally -->
+        <!-- The desk: one strip per app, scrolling horizontally -->
         <ScrollViewer
-            Grid.Row="2"
-            Padding="0,8,0,0"
+            Grid.Row="3"
+            Padding="0,4,0,0"
             HorizontalScrollMode="Auto"
             HorizontalScrollBarVisibility="Auto"
             VerticalScrollMode="Disabled"
             VerticalScrollBarVisibility="Disabled">
-            <!-- Centred so a couple of strips don't sit in a sea of empty space. -->
+            <!-- Centred so a few strips don't sit against a wall of empty space. -->
             <StackPanel x:Name="StripsPanel" Orientation="Horizontal" Spacing="10" HorizontalAlignment="Center" />
         </ScrollViewer>
 
         <TextBlock
             x:Name="EmptyStateText"
-            Grid.Row="2"
+            Grid.Row="3"
             Text="Nothing is playing audio right now."
             Opacity="0.5"
             HorizontalAlignment="Center"

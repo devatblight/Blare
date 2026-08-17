@@ -66,8 +66,19 @@ public sealed class AudioSessionManager
         });
     }
 
-    public unsafe void SetVolume(uint processId, float level) =>
-        WithSimpleVolumeForProcess(processId, sv => sv.SetMasterVolume(level, null));
+    /// <summary>
+    /// Sets a session's volume. The level is clamped here rather than trusted:
+    /// ISimpleAudioVolume only accepts 0..1 and throws ArgumentException
+    /// otherwise, and an out-of-range value reaching this far (a stale saved
+    /// level from when sliders went past 100%, say) would otherwise surface as
+    /// an unobserved task exception and take the process down from the
+    /// finalizer thread.
+    /// </summary>
+    public unsafe void SetVolume(uint processId, float level)
+    {
+        var clamped = Math.Clamp(level, 0f, 1f);
+        WithSimpleVolumeForProcess(processId, sv => sv.SetMasterVolume(clamped, null));
+    }
 
     public unsafe void SetMute(uint processId, bool isMuted) =>
         WithSimpleVolumeForProcess(processId, sv => sv.SetMute(isMuted, null));

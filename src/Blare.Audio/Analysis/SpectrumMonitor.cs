@@ -3,6 +3,13 @@ using BLight.Blare.Audio.Boost;
 
 namespace BLight.Blare.Audio.Analysis;
 
+/// <summary>Why a given app's meter is or isn't moving. Surfaced in Diagnostics so a dead meter is explainable rather than mysterious.</summary>
+public sealed record SpectrumWatchStatus(
+    uint ProcessId,
+    bool IsCapturing,
+    long BlocksReceived,
+    string? Error);
+
 /// <summary>
 /// Runs a per-process loopback capture per watched app and feeds it through
 /// a <see cref="SpectrumAnalyzer"/>, so the UI can read live frequency bands
@@ -24,13 +31,54 @@ public sealed class SpectrumMonitor : IDisposable
 
     public int BandCount => _bandCount;
 
-    /// <summary>Processes currently being captured. Surfaced in Diagnostics so live capture streams are never invisible.</summary>
     public IReadOnlyCollection<uint> WatchedProcesses => _watches.Keys.ToList();
 
+    /// <summary>Per-process capture health, including the reason a capture stopped.</summary>
+    public IReadOnlyList<SpectrumWatchStatus> Statuses =>
+        _watches.Select(pair => new SpectrumWatchStatus(
+            pair.Key,
+            pair.Value.IsCapturing,
+            Interlocked.Read(ref pair.Value.BlocksReceived),
+            pair.Value.Error)).ToList();
+
     /// <summary>Begins watching a process. Safe to call repeatedly for an already-watched process.</summary>
-    public void Watch(uint processId)
+    public void Watch(uint processId) => _watches.GetOrAdd(processId, StartWatch);
+
+    /// <summary>
+    /// Merges the latest band levels for several processes into
+    /// <paramref name="destination"/>, taking the loudest per band. An app can
+    /// spread audio over several processes, and which one is actually producing
+    /// sound changes moment to moment — taking the max avoids having to guess.
+    /// </summary>
+    public bool TryGetMergedBands(IEnumerable<uint> processIds, Span<double> destination)
     {
-        _watches.GetOrAdd(processId, StartWatch);
+        var any = false;
+        Span<double> scratch = stackalloc double[destination.Length];
+
+        foreach (var processId in processIds)
+        {
+            if (!TryGetBands(processId, scratch))
+            {
+                continue;
+            }
+
+            if (!any)
+            {
+                scratch.CopyTo(destination);
+                any = true;
+                continue;
+            }
+
+            for (var i = 0; i < destination.Length; i++)
+            {
+                if (scratch[i] > destination[i])
+                {
+                    destination[i] = scratch[i];
+                }
+            }
+        }
+
+        return any;
     }
 
     /// <summary>Copies the latest band levels (0..1) for a process into <paramref name="destination"/>. Returns false when that process isn't being watched yet.</summary>
@@ -97,6 +145,8 @@ public sealed class SpectrumMonitor : IDisposable
                             watch.Analyzer.AddSamples(block);
                             watch.ReceivedSinceLastRead = true;
                         }
+
+                        Interlocked.Increment(ref watch.BlocksReceived);
                     },
                     watch.Cancellation.Token);
             }
@@ -104,11 +154,16 @@ public sealed class SpectrumMonitor : IDisposable
             {
                 // expected when the watch is stopped
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                // A process can exit, refuse capture, or be protected — a dead
-                // visualiser must never take the app down with it.
-                _watches.TryRemove(processId, out _);
+                // A process can exit, refuse capture, or be protected. Keep the
+                // watch entry so the reason stays visible in Diagnostics instead
+                // of the meter simply never moving.
+                watch.Error = $"{ex.GetType().Name}: {ex.Message}";
+            }
+            finally
+            {
+                watch.IsCapturing = false;
             }
         });
 
@@ -117,6 +172,8 @@ public sealed class SpectrumMonitor : IDisposable
 
     private sealed class WatchState(SpectrumAnalyzer analyzer, CancellationTokenSource cancellation)
     {
+        public long BlocksReceived;
+
         public SpectrumAnalyzer Analyzer { get; } = analyzer;
 
         public CancellationTokenSource Cancellation { get; } = cancellation;
@@ -124,5 +181,9 @@ public sealed class SpectrumMonitor : IDisposable
         public object Gate { get; } = new();
 
         public bool ReceivedSinceLastRead { get; set; }
+
+        public volatile bool IsCapturing = true;
+
+        public volatile string? Error;
     }
 }

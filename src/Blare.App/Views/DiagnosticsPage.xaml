@@ -5,7 +5,7 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006">
 
-    <Grid Padding="20,14,20,16" RowSpacing="12">
+    <Grid Padding="16" RowSpacing="10">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
@@ -17,12 +17,12 @@
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
 
-            <StackPanel Grid.Column="0" Spacing="2">
-                <TextBlock Text="Diagnostics" Style="{StaticResource TitleTextBlockStyle}" />
+            <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                <TextBlock Text="Diagnostics" FontSize="20" FontWeight="SemiBold" />
                 <TextBlock
-                    Text="Everything Blare is doing right now. Updates live."
-                    Style="{StaticResource CaptionTextBlockStyle}"
-                    Opacity="0.65" />
+                    Text="Everything Blare is doing, updated live. Read-only."
+                    FontSize="12"
+                    Opacity="0.6" />
             </StackPanel>
 
             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
@@ -32,116 +32,12 @@
                     OffContent="Paused"
                     IsOn="True"
                     Toggled="OnLiveToggled" />
-                <Button Content="Copy all" Click="OnCopyClicked" />
+                <Button Content="Copy" Click="OnCopyClicked" />
             </StackPanel>
         </Grid>
 
         <ScrollViewer Grid.Row="1">
-            <StackPanel Spacing="14">
-
-                <Border
-                    Padding="14"
-                    CornerRadius="{ThemeResource BlareStripCornerRadius}"
-                    Background="{ThemeResource BlareStripBackground}"
-                    BorderBrush="{ThemeResource BlareStripBorder}"
-                    BorderThickness="1">
-                    <StackPanel Spacing="8">
-                        <TextBlock Text="AUDIO SESSIONS" FontSize="10" FontWeight="Bold" Opacity="0.55" />
-                        <TextBlock
-                            x:Name="SessionsText"
-                            FontFamily="Consolas"
-                            FontSize="12"
-                            IsTextSelectionEnabled="True"
-                            TextWrapping="Wrap" />
-                    </StackPanel>
-                </Border>
-
-                <Border
-                    Padding="14"
-                    CornerRadius="{ThemeResource BlareStripCornerRadius}"
-                    Background="{ThemeResource BlareStripBackground}"
-                    BorderBrush="{ThemeResource BlareStripBorder}"
-                    BorderThickness="1">
-                    <StackPanel Spacing="8">
-                        <TextBlock Text="OUTPUT DEVICES" FontSize="10" FontWeight="Bold" Opacity="0.55" />
-                        <TextBlock
-                            x:Name="DevicesText"
-                            FontFamily="Consolas"
-                            FontSize="12"
-                            IsTextSelectionEnabled="True"
-                            TextWrapping="Wrap" />
-                    </StackPanel>
-                </Border>
-
-                <Border
-                    Padding="14"
-                    CornerRadius="{ThemeResource BlareStripCornerRadius}"
-                    Background="{ThemeResource BlareStripBackground}"
-                    BorderBrush="{ThemeResource BlareStripBorder}"
-                    BorderThickness="1">
-                    <StackPanel Spacing="8">
-                        <TextBlock Text="CAPTURE &amp; ANALYSIS" FontSize="10" FontWeight="Bold" Opacity="0.55" />
-                        <TextBlock
-                            x:Name="CaptureText"
-                            FontFamily="Consolas"
-                            FontSize="12"
-                            IsTextSelectionEnabled="True"
-                            TextWrapping="Wrap" />
-                    </StackPanel>
-                </Border>
-
-                <Border
-                    Padding="14"
-                    CornerRadius="{ThemeResource BlareStripCornerRadius}"
-                    Background="{ThemeResource BlareStripBackground}"
-                    BorderBrush="{ThemeResource BlareMeterMid}"
-                    BorderThickness="1">
-                    <StackPanel Spacing="8">
-                        <TextBlock Text="SAFETY STATE" FontSize="10" FontWeight="Bold" Opacity="0.55" />
-                        <TextBlock
-                            x:Name="SafetyText"
-                            FontFamily="Consolas"
-                            FontSize="12"
-                            IsTextSelectionEnabled="True"
-                            TextWrapping="Wrap" />
-                    </StackPanel>
-                </Border>
-
-                <Border
-                    Padding="14"
-                    CornerRadius="{ThemeResource BlareStripCornerRadius}"
-                    Background="{ThemeResource BlareStripBackground}"
-                    BorderBrush="{ThemeResource BlareStripBorder}"
-                    BorderThickness="1">
-                    <StackPanel Spacing="8">
-                        <TextBlock Text="BOOST ENGINE" FontSize="10" FontWeight="Bold" Opacity="0.55" />
-                        <TextBlock
-                            x:Name="BoostText"
-                            FontFamily="Consolas"
-                            FontSize="12"
-                            IsTextSelectionEnabled="True"
-                            TextWrapping="Wrap" />
-                    </StackPanel>
-                </Border>
-
-                <Border
-                    Padding="14"
-                    CornerRadius="{ThemeResource BlareStripCornerRadius}"
-                    Background="{ThemeResource BlareStripBackground}"
-                    BorderBrush="{ThemeResource BlareStripBorder}"
-                    BorderThickness="1">
-                    <StackPanel Spacing="8">
-                        <TextBlock Text="ENVIRONMENT" FontSize="10" FontWeight="Bold" Opacity="0.55" />
-                        <TextBlock
-                            x:Name="EnvironmentText"
-                            FontFamily="Consolas"
-                            FontSize="12"
-                            IsTextSelectionEnabled="True"
-                            TextWrapping="Wrap" />
-                    </StackPanel>
-                </Border>
-
-            </StackPanel>
+            <StackPanel x:Name="SectionsPanel" Spacing="10" />
         </ScrollViewer>
     </Grid>
 </Page>

@@ -35,9 +35,6 @@ public sealed partial class MixerPage : Page
     /// <summary>Every live process backing each app strip, so a fader moves all of them.</summary>
     private readonly Dictionary<string, List<uint>> _processesByApp = new();
 
-    /// <summary>The one process per app we run spectrum capture on — capture streams are too costly to run for every renderer.</summary>
-    private readonly Dictionary<string, uint> _meteredProcessByApp = new();
-
     private readonly double[] _bandScratch;
 
     private bool _suppressMasterVolumePush;
@@ -61,7 +58,7 @@ public sealed partial class MixerPage : Page
 
         _safetyTimer = CreateTimer(TimeSpan.FromSeconds(5), RunSafetySample);
         _meterTimer = CreateTimer(TimeSpan.FromMilliseconds(50), RefreshMeters);
-        _sessionTimer = CreateTimer(TimeSpan.FromSeconds(2), () => _ = RefreshSessionsAsync());
+        _sessionTimer = CreateTimer(TimeSpan.FromSeconds(2), () => CrashLog.FireAndForget(RefreshSessionsAsync()));
 
         Unloaded += (_, _) =>
         {
@@ -72,7 +69,7 @@ public sealed partial class MixerPage : Page
             _spectrumMonitor.StopAll();
         };
 
-        _ = InitializeAsync();
+        CrashLog.FireAndForget(InitializeAsync());
     }
 
     private DispatcherQueueTimer CreateTimer(TimeSpan interval, Action tick)
@@ -125,8 +122,8 @@ public sealed partial class MixerPage : Page
     {
         foreach (var (appKey, strip) in _strips)
         {
-            if (_meteredProcessByApp.TryGetValue(appKey, out var processId)
-                && _spectrumMonitor.TryGetBands(processId, _bandScratch))
+            if (_processesByApp.TryGetValue(appKey, out var processes)
+                && _spectrumMonitor.TryGetMergedBands(processes, _bandScratch))
             {
                 strip.SetLevels(_bandScratch);
             }
@@ -135,15 +132,27 @@ public sealed partial class MixerPage : Page
 
     private void UpdateStatusChips()
     {
-        BoostedCountText.Text = _boostCoordinator.BoostedCount.ToString();
-        WarningCountText.Text = _safetyMonitor.WarningCount.ToString();
-
+        var boosted = _boostCoordinator.BoostedCount;
+        var warnings = _safetyMonitor.WarningCount;
         var minutesLoud = _safetyMonitor.TotalTimeAboveThreshold.TotalMinutes;
-        ExposureText.Text = $"{minutesLoud:F0}m";
-        // Bar fills across a nominal 60-minute reference so it reads as a
-        // trend, not a clinical dose measurement.
-        ExposureBar.Value = Math.Min(100, minutesLoud / 60.0 * 100);
+
+        BoostedCountText.Text = boosted == 0 ? "no boost" : $"{boosted} boosted";
+        WarningCountText.Text = warnings switch
+        {
+            0 => "no warnings",
+            1 => "1 warning",
+            _ => $"{warnings} warnings",
+        };
+        ExposureText.Text = $"{minutesLoud:F0}m loud today";
+
+        // Dots only light when there's something to report, so a calm desk reads as calm.
+        BoostDot.Fill = BrushFor(boosted > 0 ? "BlareMeterHigh" : "BlareMeterUnlit");
+        WarningDot.Fill = BrushFor(warnings > 0 ? "BlareMeterMid" : "BlareMeterUnlit");
+        ExposureDot.Fill = BrushFor(minutesLoud >= 60 ? "BlareMeterMid" : minutesLoud > 0 ? "BlareMeterLow" : "BlareMeterUnlit");
     }
+
+    private static Microsoft.UI.Xaml.Media.Brush BrushFor(string resourceKey) =>
+        (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources[resourceKey];
 
     private void RunSafetySample()
     {
@@ -202,11 +211,6 @@ public sealed partial class MixerPage : Page
             StripsPanel.Children.Remove(_strips[goneKey]);
             _strips.Remove(goneKey);
             _processesByApp.Remove(goneKey);
-
-            if (_meteredProcessByApp.Remove(goneKey, out var meteredProcessId))
-            {
-                _spectrumMonitor.Stop(meteredProcessId);
-            }
         }
 
         _processesByApp.Clear();
@@ -236,9 +240,16 @@ public sealed partial class MixerPage : Page
             }
 
             var liveVolumePercent = Math.Round(entry.Session.Volume * 100);
-            var savedVolumePercent = string.IsNullOrEmpty(entry.ExecutablePath)
-                ? null
-                : _volumeStore.GetVolume(entry.ExecutablePath);
+
+            // Clamp to the current ceiling: stored levels can predate a lower
+            // ceiling (a 150% value saved while boost sliders went that high),
+            // and restoring one raw would be out of range for the audio APIs.
+            double? savedVolumePercent = null;
+            if (!string.IsNullOrEmpty(entry.ExecutablePath)
+                && _volumeStore.GetVolume(entry.ExecutablePath) is { } stored)
+            {
+                savedVolumePercent = Math.Clamp(stored, 0, ceiling);
+            }
 
             if (savedVolumePercent is { } saved && Math.Abs(saved - liveVolumePercent) > 0.5)
             {
@@ -259,18 +270,18 @@ public sealed partial class MixerPage : Page
 
             var strip = new ChannelStrip();
             strip.Bind(viewModel);
-            strip.FocusRequested += (_, key) => _ = ToggleFocusAsync(key);
+            strip.FocusRequested += (_, key) => CrashLog.FireAndForget(ToggleFocusAsync(key));
 
             _strips[groupKey] = strip;
             StripsPanel.Children.Add(strip);
 
             if (!string.IsNullOrEmpty(entry.ExecutablePath))
             {
-                _ = ResolveIconAsync(viewModel, entry.ExecutablePath);
+                CrashLog.FireAndForget(ResolveIconAsync(viewModel, entry.ExecutablePath));
             }
         }
 
-        UpdateMeteredProcesses(liveSessions);
+        UpdateMeteredProcesses();
 
         EmptyStateText.Visibility = _strips.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
     }
@@ -301,29 +312,31 @@ public sealed partial class MixerPage : Page
         }
     }
 
-    /// <summary>Picks the loudest process per app to visualise, so a browser gets one capture stream rather than one per tab.</summary>
-    private void UpdateMeteredProcesses(List<(AudioSessionInfo Session, string DisplayName, string ExecutablePath)> liveSessions)
+    /// <summary>
+    /// Captures every process backing an app, up to a cap.
+    ///
+    /// Watching only the "loudest" process doesn't work: which process of a
+    /// multi-process app is actually rendering changes moment to moment, and
+    /// picking one by an instantaneous peak reading leaves the meter dead
+    /// whenever the sound is coming from a different one. Bands are merged by
+    /// taking the loudest per band.
+    /// </summary>
+    private void UpdateMeteredProcesses()
     {
-        foreach (var group in liveSessions.GroupBy(entry =>
-                     SessionGroupTracker.ComputeGroupKey(
-                         Guid.Empty,
-                         AppKeyFor(entry.ExecutablePath, entry.Session.ProcessId),
-                         entry.Session.ProcessId)))
+        const int maxStreamsPerApp = 4;
+
+        var wanted = _processesByApp
+            .SelectMany(pair => pair.Value.Take(maxStreamsPerApp))
+            .ToHashSet();
+
+        foreach (var stale in _spectrumMonitor.WatchedProcesses.Where(pid => !wanted.Contains(pid)))
         {
-            var loudest = group.OrderByDescending(entry => entry.Session.PeakLevel).First().Session.ProcessId;
+            _spectrumMonitor.Stop(stale);
+        }
 
-            if (_meteredProcessByApp.TryGetValue(group.Key, out var current))
-            {
-                if (current == loudest)
-                {
-                    continue;
-                }
-
-                _spectrumMonitor.Stop(current);
-            }
-
-            _meteredProcessByApp[group.Key] = loudest;
-            _spectrumMonitor.Watch(loudest);
+        foreach (var processId in wanted)
+        {
+            _spectrumMonitor.Watch(processId);
         }
     }
 
@@ -344,7 +357,7 @@ public sealed partial class MixerPage : Page
         UpdateFocusIndicator();
     }
 
-    private void OnFocusBannerClosed(InfoBar sender, object args) => _ = ReleaseFocusAsync();
+    private void OnFocusBannerClosed(InfoBar sender, object args) => CrashLog.FireAndForget(ReleaseFocusAsync());
 
     public async Task ReleaseFocusAsync()
     {
@@ -415,7 +428,7 @@ public sealed partial class MixerPage : Page
         switch (e.PropertyName)
         {
             case nameof(SessionRowViewModel.VolumePercent):
-                _ = ApplyVolumeChangeAsync(viewModel);
+                CrashLog.FireAndForget(ApplyVolumeChangeAsync(viewModel));
                 break;
             case nameof(SessionRowViewModel.IsMuted):
                 foreach (var processId in ProcessesFor(viewModel))

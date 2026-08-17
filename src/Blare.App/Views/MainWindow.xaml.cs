@@ -1,27 +1,25 @@
 using BLight.Blare.App.Services;
 using BLight.Blare.App.Views;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.UI.Composition.SystemBackdrops;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using WinRT;
 
 namespace BLight.Blare.App;
 
 public sealed partial class MainWindow : Window
 {
     private readonly ThemeService _themeService;
-    private MicaController? _micaController;
-    private SystemBackdropConfiguration? _backdropConfiguration;
+    private readonly BackdropService _backdropService;
 
-    public MainWindow(ThemeService themeService)
+    public MainWindow(ThemeService themeService, BackdropService backdropService)
     {
         _themeService = themeService;
+        _backdropService = backdropService;
 
         InitializeComponent();
 
         Title = "Blare";
-        TrySetMicaBackdrop();
+        _backdropService.Attach(this);
 
         // Draw our own caption so it sits on the Mica surface rather than in
         // a separate opaque bar above it.
@@ -64,16 +62,4 @@ public sealed partial class MainWindow : Window
         _ => typeof(MixerPage),
     };
 
-    private void TrySetMicaBackdrop()
-    {
-        if (!MicaController.IsSupported())
-        {
-            return;
-        }
-
-        _backdropConfiguration = new SystemBackdropConfiguration { IsInputActive = true };
-        _micaController = new MicaController();
-        _micaController.AddSystemBackdropTarget(this.As<Microsoft.UI.Composition.ICompositionSupportsSystemBackdrop>());
-        _micaController.SetSystemBackdropConfiguration(_backdropConfiguration);
-    }
 }

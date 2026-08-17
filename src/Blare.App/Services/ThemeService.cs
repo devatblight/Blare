@@ -72,20 +72,28 @@ public sealed class ThemeService
 
             case BlareTheme.NativeFluent:
             default:
-                resources["BlarePanelBackground"] = resources["LayerFillColorDefaultBrush"];
-                resources["BlareStripBackground"] = resources["CardBackgroundFillColorDefaultBrush"];
-                resources["BlareStripBorder"] = resources["CardStrokeColorDefaultBrush"];
-                resources["BlareMeterLow"] = resources["SystemFillColorSuccessBrush"];
-                resources["BlareMeterMid"] = resources["SystemFillColorCautionBrush"];
-                resources["BlareMeterHigh"] = resources["SystemFillColorCriticalBrush"];
-                resources["BlareMeterUnlit"] = resources["ControlStrongFillColorDisabledBrush"];
-                resources["BlareAccent"] = resources["AccentFillColorDefaultBrush"];
+                // Borrow the system brushes where they resolve. These live in
+                // theme dictionaries, so a plain indexer lookup can miss and
+                // throw — fall back to a literal rather than take the app down.
+                Adopt(resources, "BlarePanelBackground", "LayerFillColorDefaultBrush", Brush(0x24, 0x27, 0x2C));
+                Adopt(resources, "BlareStripBackground", "CardBackgroundFillColorDefaultBrush", Brush(0x2B, 0x2F, 0x36));
+                Adopt(resources, "BlareStripBorder", "CardStrokeColorDefaultBrush", Brush(0x3A, 0x3F, 0x49));
+                Adopt(resources, "BlareMeterLow", "SystemFillColorSuccessBrush", Brush(0x3D, 0xD6, 0x8C));
+                Adopt(resources, "BlareMeterMid", "SystemFillColorCautionBrush", Brush(0xF5, 0xC2, 0x42));
+                Adopt(resources, "BlareMeterHigh", "SystemFillColorCriticalBrush", Brush(0xE8, 0x5D, 0x3A));
+                Adopt(resources, "BlareMeterUnlit", "ControlStrongFillColorDisabledBrush", Brush(0x3A, 0x3F, 0x49));
+                Adopt(resources, "BlareAccent", "AccentFillColorDefaultBrush", Brush(0x5A, 0x9F, 0xF5));
                 resources["BlareStripCornerRadius"] = new CornerRadius(8);
                 break;
         }
 
         ThemeChanged?.Invoke(this, theme);
     }
+
+    private static void Adopt(ResourceDictionary resources, string key, string systemKey, Microsoft.UI.Xaml.Media.Brush fallback) =>
+        resources[key] = resources.TryGetValue(systemKey, out var value) && value is Microsoft.UI.Xaml.Media.Brush brush
+            ? brush
+            : fallback;
 
     private static Microsoft.UI.Xaml.Media.SolidColorBrush Brush(byte red, byte green, byte blue) =>
         new(Windows.UI.Color.FromArgb(255, red, green, blue));

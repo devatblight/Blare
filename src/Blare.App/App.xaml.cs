@@ -20,6 +20,24 @@ public partial class App : Application
     {
         InitializeComponent();
         Services = BuildServiceProvider();
+
+        // A crash with no trace is the worst possible outcome for a tray app —
+        // the window just vanishes. Record it where Diagnostics can point at it.
+        UnhandledException += (_, e) =>
+        {
+            CrashLog.Write(e.Exception);
+            e.Handled = false;
+        };
+
+        AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+        {
+            if (e.ExceptionObject is Exception exception)
+            {
+                CrashLog.Write(exception);
+            }
+        };
+
+        TaskScheduler.UnobservedTaskException += (_, e) => CrashLog.Write(e.Exception);
     }
 
     protected override async void OnLaunched(LaunchActivatedEventArgs args)
@@ -28,6 +46,7 @@ public partial class App : Application
         // and consent must be restored before anything can read a safety state.
         await Services.GetRequiredService<ThemeService>().LoadAsync();
         await Services.GetRequiredService<ConsentStore>().LoadAsync();
+        await Services.GetRequiredService<BackdropService>().LoadAsync();
 
         _mainWindow = Services.GetRequiredService<MainWindow>();
         _mainWindow.Activate();
@@ -63,6 +82,7 @@ public partial class App : Application
         services.AddSingleton<SessionVolumeStore>();
         services.AddSingleton<ConsentStore>();
         services.AddSingleton<ThemeService>();
+        services.AddSingleton<BackdropService>();
         services.AddSingleton(new AppPaths(settingsDirectory));
         services.AddTransient<MainWindow>();
 

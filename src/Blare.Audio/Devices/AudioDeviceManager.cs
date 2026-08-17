@@ -46,8 +46,9 @@ public sealed class AudioDeviceManager
 
     public unsafe void SetMasterVolume(string deviceId, float level)
     {
+        // Same 0..1 contract as session volume — clamp rather than throw.
         var endpointVolume = ActivateEndpointVolume(ActivateDeviceById(deviceId));
-        endpointVolume.SetMasterVolumeLevelScalar(level, null);
+        endpointVolume.SetMasterVolumeLevelScalar(Math.Clamp(level, 0f, 1f), null);
     }
 
     private static unsafe IMMDevice ActivateDeviceById(string deviceId)

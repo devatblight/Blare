@@ -24,6 +24,21 @@
                 </ComboBox>
             </controls:SettingsCard>
 
+            <controls:SettingsCard
+                x:Name="BackdropCard"
+                Header="Window material"
+                Description="Mica tints with your wallpaper. Acrylic blurs what's behind the window. Mica Alt is a stronger tint.">
+                <controls:SettingsCard.HeaderIcon>
+                    <FontIcon Glyph="&#xE81E;" />
+                </controls:SettingsCard.HeaderIcon>
+                <ComboBox x:Name="BackdropComboBox" MinWidth="160" SelectionChanged="OnBackdropChanged">
+                    <ComboBoxItem Content="Mica" Tag="Mica" />
+                    <ComboBoxItem Content="Mica Alt" Tag="MicaAlt" />
+                    <ComboBoxItem Content="Acrylic" Tag="Acrylic" />
+                    <ComboBoxItem Content="None" Tag="None" />
+                </ComboBox>
+            </controls:SettingsCard>
+
             <TextBlock Text="Safety" Style="{StaticResource BodyStrongTextBlockStyle}" Margin="0,24,0,4" />
 
             <controls:SettingsCard
@@ -36,6 +51,7 @@
             </controls:SettingsCard>
 
             <controls:SettingsCard
+                x:Name="BoostCeilingCard"
                 Header="Boost ceiling"
                 Description="How far past 100% a single app's volume can be pushed. 150% is the default safe limit.">
                 <controls:SettingsCard.HeaderIcon>
